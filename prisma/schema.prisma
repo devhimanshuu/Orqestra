@@ -1,0 +1,322 @@
+// ==============================================================================
+// Orqestra — Phase 0 schema
+//
+// Scope discipline: only the tables required for the foundation are modelled.
+// Tools, Datasets, Evaluations, Experiments, and Memory remain domain concepts
+// (see src/modules/*) until their phases land — they will be additive tables.
+//
+// pgvector readiness: the docker-compose image is pgvector-based, and all
+// high-churn payloads use Json columns, so embedding columns/extension can be
+// added later via migration without restructuring existing tables.
+// ==============================================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+// Connection URL lives in prisma.config.ts (Prisma 7 convention).
+datasource db {
+  provider = "postgresql"
+}
+
+// ------------------------------------------------------------------------------
+// Authentication (Better Auth adapter models)
+// ------------------------------------------------------------------------------
+
+model User {
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  memberships   WorkspaceMember[]
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  // Required by Better Auth (expiring verification tokens).
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ------------------------------------------------------------------------------
+// Tenancy: Workspace → Project
+// ------------------------------------------------------------------------------
+
+model Workspace {
+  id          String            @id @default(cuid())
+  name        String
+  slug        String            @unique
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  members     WorkspaceMember[]
+  projects    Project[]
+}
+
+model WorkspaceMember {
+  id          String    @id @default(cuid())
+  role        String    @default("owner")
+  userId      String
+  workspaceId String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@unique([userId, workspaceId])
+  @@index([workspaceId])
+}
+
+model Project {
+  id          String      @id @default(cuid())
+  workspaceId String
+  name        String
+  slug        String
+  description String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agents      Agent[]
+  harnesses   Harness[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+}
+
+// ------------------------------------------------------------------------------
+// Agent — identity, purpose, base instructions, model configuration.
+// An Agent never encodes *how* it behaves; that belongs to Harness.
+// ------------------------------------------------------------------------------
+
+model Agent {
+  id             String         @id @default(cuid())
+  projectId      String
+  name           String
+  slug           String
+  description    String?
+  currentVersion Int            @default(1)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  project        Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versions       AgentVersion[]
+  harnesses      Harness[]
+
+  @@unique([projectId, slug])
+  @@index([projectId])
+}
+
+model AgentVersion {
+  id           String   @id @default(cuid())
+  agentId      String
+  version      Int
+  /** What the agent is for — displayed on the agent overview. */
+  purpose      String?
+  instructions Json
+  modelConfig  Json
+  capabilities Json?
+  createdBy    String?
+  createdAt    DateTime @default(now())
+  agent        Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, version])
+}
+
+enum HarnessStatus {
+  DRAFT
+  VALID
+  INVALID
+  ARCHIVED
+}
+
+// ------------------------------------------------------------------------------
+// Harness — behavior engineering: reasoning flow, tools, memory, loops,
+// termination. Harness rows are mutable shells; HarnessVersion rows are
+// immutable, content-hashed snapshots (reproducible configurations).
+// ------------------------------------------------------------------------------
+
+model Harness {
+  id             String          @id @default(cuid())
+  projectId      String
+  /** A harness belongs to an agent; the agent supplies identity/config. */
+  agentId        String?
+  name           String
+  slug           String
+  description    String?
+  currentVersion Int             @default(1)
+  /** Denormalised from the current definition for fast lists (draft first, else latest version). */
+  nodeCount      Int             @default(0)
+  edgeCount      Int             @default(0)
+  /** Derived from the current draft/definition: DRAFT until validated. */
+  status         HarnessStatus   @default(DRAFT)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  project        Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  agent          Agent?          @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  versions       HarnessVersion[]
+  draft          HarnessDraft?
+  runs           Run[]
+
+  @@unique([projectId, slug])
+  @@index([projectId])
+  @@index([agentId])
+}
+
+/**
+ * The editable working copy of a harness. Drafts are mutable and autosaved;
+ * publishing copies a draft into an immutable HarnessVersion.
+ */
+model HarnessDraft {
+  id         String   @id @default(cuid())
+  harnessId  String   @unique
+  definition Json
+  updatedBy  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  harness    Harness  @relation(fields: [harnessId], references: [id], onDelete: Cascade)
+}
+
+model HarnessVersion {
+  id           String   @id @default(cuid())
+  harnessId    String
+  version      Int
+  name         String
+  // Full HarnessDefinition (nodes/edges/entry/exits) as validated JSON.
+  definition   Json
+  // Stable SHA-256 of the canonical serialization — dedup + reproducibility.
+  contentHash  String
+  entryNode    String
+  // Published versions are validated before insert, so this is VALID by
+  // construction today; kept explicit for imports/audit.
+  status       String   @default("VALID")
+  releaseNotes String?
+  createdBy    String?
+  createdAt    DateTime @default(now())
+  harness      Harness  @relation(fields: [harnessId], references: [id], onDelete: Cascade)
+  runs         Run[]
+
+  @@unique([harnessId, version])
+  @@index([harnessId, contentHash])
+}
+
+// ------------------------------------------------------------------------------
+// Run / Trace — observability model designed up-front so the future Run Lab
+// UI (Phase 3) needs no schema redesign. Every run pins the exact
+// HarnessVersion that produced it.
+// ------------------------------------------------------------------------------
+
+enum RunStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  TIMED_OUT
+}
+
+enum StepStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+  SKIPPED
+}
+
+model Run {
+  id               String        @id @default(cuid())
+  harnessId        String
+  harnessVersionId String
+  // Denormalised pins for quick filtering (nullable: harness-only runs are legal
+  // in Phase 0; agent attribution becomes required once runtime lands).
+  agentId          String?
+  agentVersion     Int?
+  status           RunStatus     @default(QUEUED)
+  input            Json
+  output           Json?
+  tokenUsage       Json?
+  cost             Float?
+  latencyMs        Int?
+  error            Json?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  harness          Harness       @relation(fields: [harnessId], references: [id], onDelete: Cascade)
+  harnessVersion   HarnessVersion @relation(fields: [harnessVersionId], references: [id], onDelete: Restrict)
+  steps            RunStep[]
+
+  @@index([harnessVersionId])
+  @@index([harnessId, status])
+  @@index([createdAt])
+}
+
+model RunStep {
+  id         String     @id @default(cuid())
+  runId      String
+  // Position in the execution order; unique per run for stable timeline UI.
+  index      Int
+  nodeId     String
+  nodeType   String
+  nodeLabel  String
+  status     StepStatus @default(PENDING)
+  input      Json?
+  output     Json?
+  error      Json?
+  startedAt  DateTime?
+  completedAt DateTime?
+  durationMs Int?
+  createdAt  DateTime   @default(now())
+  run        Run        @relation(fields: [runId], references: [id], onDelete: Cascade)
+  trace      Trace?
+
+  @@unique([runId, index])
+  @@index([runId])
+}
+
+// One trace document per step: ordered runtime events (node/llm/tool/loop).
+model Trace {
+  id         String   @id @default(cuid())
+  runStepId  String   @unique
+  events     Json
+  createdAt  DateTime @default(now())
+  runStep    RunStep  @relation(fields: [runStepId], references: [id], onDelete: Cascade)
+}
