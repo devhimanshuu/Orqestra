@@ -1,0 +1,41 @@
+# Local development infrastructure for Orqestra.
+# Usage:  docker compose up -d
+# The Postgres image ships pgvector so vector features can be enabled later
+# without switching images or migrating data.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: orqestra-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: orqestra
+      POSTGRES_PASSWORD: orqestra
+      POSTGRES_DB: orqestra
+    ports:
+      - "5432:5432"
+    volumes:
+      - orqestra-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orqestra -d orqestra"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: orqestra-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - orqestra-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  orqestra-postgres-data:
+  orqestra-redis-data:
