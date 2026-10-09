@@ -4,30 +4,8 @@ import { nextCookies } from "better-auth/next-js";
 import { getEnv } from "@/config/env";
 import { getPrisma } from "@/lib/db/prisma";
 import { logger } from "@/lib/logging/logger";
-import type { Env } from "@/config/env";
 import type { AuthProvider, AuthSession } from "./provider";
-
-/**
- * Origins allowed to call the auth API.
- *
- * Production stays strict: only APP_URL plus explicitly configured origins.
- * Development additionally trusts any localhost port, because Next.js picks a
- * free port whenever 3000 is busy.
- */
-function resolveTrustedOrigins(env: Env): string[] {
-  const origins = new Set<string>([env.APP_URL]);
-  for (const origin of env.BETTER_AUTH_TRUSTED_ORIGINS.split(",")) {
-    const trimmed = origin.trim();
-    if (trimmed !== "") {
-      origins.add(trimmed);
-    }
-  }
-  if (env.NODE_ENV !== "production") {
-    origins.add("http://localhost:*");
-    origins.add("http://127.0.0.1:*");
-  }
-  return [...origins];
-}
+import { resolveTrustedOrigins } from "./trusted-origins";
 
 /**
  * Constructed lazily so importing this module never reads env or opens

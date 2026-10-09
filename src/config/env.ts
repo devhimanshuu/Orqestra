@@ -44,6 +44,19 @@ export const envSchema = z.object({
   // --- optional application settings ---------------------------------------
   APP_URL: z.url().default("http://localhost:3000"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
+
+  // --- runtime execution ----------------------------------------------------
+  // auto: enqueue through BullMQ when Redis answers, otherwise execute inline
+  // (development without Redis, single-process deployments). queue: BullMQ only.
+  // inline: never touch the queue — useful for tests and local runs.
+  RUN_EXECUTION_MODE: z.enum(["auto", "queue", "inline"]).default("auto"),
+  /** Wall-clock ceiling for a single run. */
+  RUNTIME_MAX_DURATION_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(120_000),
+  /** Hard ceilings that guard the platform, independent of per-run requests. */
+  RUNTIME_MAX_NODES: z.coerce.number().int().min(1).max(10_000).default(100),
+  RUNTIME_MAX_ITERATIONS: z.coerce.number().int().min(1).max(1_000).default(10),
+  RUNTIME_MAX_LLM_CALLS: z.coerce.number().int().min(1).max(10_000).default(30),
+  RUNTIME_MAX_TOOL_CALLS: z.coerce.number().int().min(1).max(10_000).default(20),
   /** Comma-separated extra origins allowed to call the auth API (wildcards supported). */
   BETTER_AUTH_TRUSTED_ORIGINS: z.string().default(""),
 
@@ -77,9 +90,22 @@ export class EnvironmentValidationError extends Error {
   }
 }
 
+/** Strips surrounding single or double quotes that .env files may contain. */
+function unquote(value: string): string {
+  if (value.length >= 2 && ((value.startsWith("'") && value.endsWith("'")) || (value.startsWith('"') && value.endsWith('"')))) {
+    return value.slice(1, -1);
+  }
+  return value;
+}
+
 /** Validate a raw environment object. Throws EnvironmentValidationError on failure. */
 export function validateEnv(raw: unknown): Env {
-  const result = envSchema.safeParse(raw);
+  // Next.js loads .env files but does not strip quotes from values.
+  const cleaned: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    cleaned[key] = typeof value === "string" ? unquote(value) : value;
+  }
+  const result = envSchema.safeParse(cleaned);
   if (!result.success) {
     const issues = result.error.issues.map((issue) => {
       const key = issue.path.join(".") || "(root)";
