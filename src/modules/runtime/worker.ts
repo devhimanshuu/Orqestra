@@ -2,26 +2,36 @@ import { Worker } from "bullmq";
 import { createBullConnection } from "@/lib/redis/connection";
 import { logger } from "@/lib/logging/logger";
 import { RUN_QUEUE_NAME, runJobSchema, type RunJobData } from "./queues";
+import { executeRun } from "./run.executor";
 
 /**
- * Queue worker entry point (BullMQ foundation).
+ * Queue worker entry point.
  *
  * Run it alongside the web app:  pnpm worker
  *
- * Phase 0 deliberately stops at the boundary: the processor validates the job
- * payload through the shared schema and acknowledges it. Executing the harness
- * (node-by-node runtime + trace persistence) is Phase 2 — wiring it in means
- * replacing the body of `processRunJob` with a call to the runtime and writing
- * the resulting RunStep/Trace rows.
+ * The processor is a thin adapter: validate the job payload, then hand off to
+ * `executeRun`, which owns loading, compiling, executing and persisting the run.
+ * Everything long-running happens here, never in an HTTP request.
+ *
+ * Delivery semantics: a BullMQ job runs at most once per attempt, and
+ * `executeRun` claims the run row atomically (QUEUED → RUNNING), so a duplicated
+ * job (or a crash-and-redeliver) cannot execute a run twice.
  */
 
 const workerLogger = logger.child({ module: "runtime.worker" });
 
 export async function processRunJob(data: RunJobData): Promise<{ runId: string; accepted: true }> {
   const job = runJobSchema.parse(data);
-  workerLogger.info("run job accepted — execution not implemented in Phase 0", {
+  workerLogger.info("run job picked up", {
     runId: job.runId,
     harnessVersionId: job.harnessVersionId,
+  });
+
+  const result = await executeRun(job.runId, { transport: "queue" });
+  workerLogger.info("run job finished", {
+    runId: job.runId,
+    status: result.status,
+    skipped: result.skipped,
   });
   return { runId: job.runId, accepted: true };
 }
@@ -31,6 +41,11 @@ export function startRunWorker() {
     // BullMQ requires maxRetriesPerRequest: null on worker connections.
     connection: createBullConnection(),
     concurrency: 2,
+    // A run can legitimately take minutes; BullMQ's default lock duration is
+    // shorter than that, so renew the lock instead of letting a long run be
+    // redelivered to another worker.
+    lockDuration: 120_000,
+    stalledInterval: 60_000,
   });
 
   worker.on("ready", () => workerLogger.info("run worker ready", { queue: RUN_QUEUE_NAME }));
@@ -63,6 +78,19 @@ function loadLocalEnv(): void {
 /** Script entry when executed with `tsx src/modules/runtime/worker.ts`. */
 async function main(): Promise<void> {
   loadLocalEnv();
+  const { getEnv } = await import("@/config/env");
+  const { getPrisma } = await import("@/lib/db/prisma");
+  const { getToolRegistry } = await import("@/modules/tools");
+
+  const env = getEnv();
+  getPrisma();
+  // Warm the tool registry so the first run does not pay for registration.
+  getToolRegistry();
+  workerLogger.info("worker starting", {
+    executionMode: env.RUN_EXECUTION_MODE,
+    queue: RUN_QUEUE_NAME,
+  });
+
   const worker = startRunWorker();
 
   const shutdown = async (signal: string): Promise<void> => {

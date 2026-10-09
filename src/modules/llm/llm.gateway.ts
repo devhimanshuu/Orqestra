@@ -7,6 +7,7 @@ import {
   type LLMResponse,
 } from "./llm.types";
 import { geminiProvider } from "./providers/gemini.provider";
+import { mockProvider } from "./providers/mock.provider";
 import { ollamaProvider } from "./providers/ollama.provider";
 
 /**
@@ -80,6 +81,11 @@ class Gateway implements LLMGateway {
     }
     if (!this.providers.has(ollamaProvider.id)) {
       this.providers.set(ollamaProvider.id, ollamaProvider);
+    }
+    // The mock provider makes no network calls: harnesses can be dry-run end to
+    // end (and tests stay deterministic) without provider credentials.
+    if (!this.providers.has(mockProvider.id)) {
+      this.providers.set(mockProvider.id, mockProvider);
     }
   }
 
