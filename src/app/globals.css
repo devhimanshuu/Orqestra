@@ -128,3 +128,360 @@
     @apply font-sans;
   }
 }
+
+/* ----------------------------------------------------------------------------
+ * Brand mark.
+ *
+ * The motion is SMIL inside the mark's own SVG (`brand/orqestra-mark.tsx`), so
+ * this only decides whether it is allowed. Reduced motion gets the mark's
+ * resting state — the node at the core — rather than a bead frozen on the band.
+ * -------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-mark-rider,
+  .brand-mark-ghost,
+  .brand-mark-pop,
+  .brand-mark-halo {
+    display: none;
+  }
+}
+
+/* ----------------------------------------------------------------------------
+ * Marketing landing page (`/`).
+ *
+ * Scoped entirely under `.landing`: the page is its own dark surface with its
+ * own palette and display face, so it is unaffected by the app's light/dark
+ * theme and never leaks styles into the dashboard or the builder.
+ * -------------------------------------------------------------------------- */
+
+.landing {
+  --home-bg: #000000;
+  --home-bg-soft: #050506;
+  --home-bg-card: #0a0a0b;
+  --home-bg-elevated: #101012;
+  --home-text: #f6f6f7;
+  --home-text-secondary: #b3b3bc;
+  --home-text-faint: #97979f;
+  --home-text-dim: #6d6d76;
+  --home-border: rgba(255, 255, 255, 0.08);
+  --home-border-strong: rgba(255, 255, 255, 0.16);
+  --home-violet: #8b7bff;
+  --home-cyan: #46d7f0;
+  --home-magenta: #ff6bb0;
+  --home-amber: #ffc857;
+  --home-green: #6ee7a8;
+  --home-font-display: var(--font-display), "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --home-font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  background-color: var(--home-bg);
+  color: var(--home-text);
+  font-family: var(--home-font-display);
+}
+
+.landing ::selection {
+  background: color-mix(in oklab, var(--home-violet) 45%, transparent);
+}
+
+/* Display type: uppercase, tight, heavy — the landing's only heading face. */
+.landing-display {
+  font-weight: 700;
+  text-transform: uppercase;
+  line-height: 0.98;
+  letter-spacing: 0.005em;
+}
+
+.landing-eyebrow {
+  font-family: var(--home-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--home-text-faint);
+}
+
+.landing-mono {
+  font-family: var(--home-font-mono);
+  font-feature-settings: "tnum" 1;
+}
+
+.landing-gradient-text {
+  background-image: linear-gradient(
+    100deg,
+    var(--home-violet) 0%,
+    var(--home-magenta) 45%,
+    var(--home-amber) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Grain + vignette over the black canvas. */
+.landing-noise {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.045) 0.5px, transparent 0.6px);
+  background-size: 3px 3px;
+  opacity: 0.55;
+}
+
+/*
+ * The hero's measure.
+ *
+ * The hero is authored as one screen: the section fills everything below the
+ * fixed header and the marquee band closes it at the fold. Two numbers keep that
+ * true at every size. `--landing-marquee-height` is the band's own height, which
+ * the section subtracts from its minimum, so the band cannot be pushed past the
+ * fold. `--hero-step` is the rhythm the hero's spacing and padding are built
+ * from; it shortens as the viewport does, so the heading, the lede, the copy
+ * field, the controls and the status row all stay above the fold instead of the
+ * section growing past it. Neither number touches type, colour or the artwork:
+ * the composition at 1080p is the composition that was drawn.
+ */
+.landing {
+  --landing-marquee-height: 52px;
+  --hero-step: 8px;
+  --hero-artwork: 520px;
+  --hero-display: clamp(38px, 5.6vw, 78px);
+}
+
+/* Shorter screens: the same composition, closer together. */
+@media (max-height: 980px) {
+  .landing {
+    --hero-step: 6px;
+    --hero-artwork: 480px;
+    --hero-display: clamp(34px, min(5.6vw, 8vh), 72px);
+  }
+}
+
+@media (max-height: 880px) {
+  .landing {
+    --hero-step: 5px;
+    --hero-artwork: 400px;
+    --hero-display: clamp(32px, min(5.4vw, 7.8vh), 66px);
+  }
+}
+
+@media (max-height: 800px) {
+  .landing {
+    --hero-step: 4px;
+    --hero-artwork: 340px;
+    --hero-display: clamp(30px, min(5.2vw, 7.4vh), 60px);
+  }
+}
+
+/*
+ * Iridescent sweep behind the hero and the closing CTA.
+ *
+ * The artwork is static SVG (see `landing/primitives.tsx`) — the reference's
+ * beam does not move either — so the only motion here is a very slight breathe
+ * of the whole layer: 1.2% scale and 6% opacity over half a minute. It is
+ * animated on a composited layer, so the blurred strokes never re-render.
+ */
+.landing-sweep {
+  mix-blend-mode: screen;
+}
+
+/*
+ * The sweep answering the pointer.
+ *
+ * `landing/interactive-sweep.tsx` writes a transform and an opacity straight
+ * onto the two groups of the artwork — not through custom properties on their
+ * ancestor, and not through the stylesheet: these are a dozen Gaussian-blurred
+ * shapes, and a custom property up the tree invalidates style for every one of
+ * them on every frame. Nothing here is needed for the resting hero — with no
+ * pointer (or no scripting, which is the same thing here) both groups are drawn
+ * as always.
+ *
+ * The one rule is the promotion, and it is live only while the pointer is
+ * driving the light: re-rastering that blur unpromoted costs a fraction of the
+ * frame rate, and released as soon as the light settles, an idle hero holds no
+ * texture memory for it.
+ */
+.landing-sweep-hosting .landing-sweep-focus,
+.landing-sweep-hosting .landing-sweep-arcs,
+.landing-sweep-hosting .landing-sweep-flow-arcs {
+  will-change: transform, opacity;
+}
+
+/*
+ * The light flowing along the arcs is drawn on its own layer and hidden whole
+ * for a reader who asked for reduced motion — the beams underneath are the
+ * artwork, and they are left exactly as drawn. (SMIL cannot be switched off from
+ * CSS, but a layer nothing draws is a layer nothing animates.)
+ */
+@media (prefers-reduced-motion: reduce) {
+  .landing-sweep-flow {
+    display: none;
+  }
+}
+
+.landing-sweep-breath {
+  animation: landing-sweep-breath 27s ease-in-out infinite alternate;
+  will-change: transform, opacity;
+}
+
+@keyframes landing-sweep-breath {
+  0% {
+    opacity: 0.88;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0.97;
+    transform: scale(1.012);
+  }
+}
+
+/* Reveal on scroll (driven by IntersectionObserver in `landing/reveal.tsx`). */
+.landing-reveal {
+  /*
+   * A reveal wrapper is a grid/flex item on this page, and grid items default
+   * to `min-width: auto` — a long unbreakable child (a `<pre>` line, a mono
+   * label) would then widen the whole column past the viewport. Wrappers never
+   * dictate a minimum width; their content scrolls or wraps instead.
+   */
+  min-width: 0;
+  opacity: 0;
+  transform: translateY(14px);
+  transition:
+    opacity 0.75s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.75s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.landing-reveal[data-visible="true"] {
+  opacity: 1;
+  transform: none;
+}
+
+/* Without scripting there is no observer, so nothing may stay hidden. */
+@media (scripting: none) {
+  .landing-reveal {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Reduced motion gets the content immediately, without the transition. */
+@media (prefers-reduced-motion: reduce) {
+  .landing-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+/* The marquee: two identical halves, translated by exactly one half. */
+.landing-marquee {
+  /* The band's height is a promise the hero's minimum is computed from, so it is
+     fixed here rather than left to padding plus a line box. */
+  height: var(--landing-marquee-height, 52px);
+  mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
+}
+
+.landing-marquee-track {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  width: max-content;
+  animation: landing-marquee 38s linear infinite;
+}
+
+.landing-marquee:hover .landing-marquee-track {
+  animation-play-state: paused;
+}
+
+@keyframes landing-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* Looping "runtime executing" animation: nodes light up in sequence. */
+.landing-step {
+  animation: landing-step 10.5s linear infinite;
+}
+
+@keyframes landing-step {
+  0%,
+  4% {
+    opacity: 0.4;
+    border-color: var(--home-border);
+  }
+  9%,
+  62% {
+    opacity: 1;
+    border-color: var(--home-border-strong);
+  }
+  70%,
+  100% {
+    opacity: 0.4;
+    border-color: var(--home-border);
+  }
+}
+
+.landing-bar {
+  animation: landing-bar 10.5s linear infinite;
+  transform-origin: left center;
+}
+
+@keyframes landing-bar {
+  0%,
+  5% {
+    transform: scaleX(0);
+    opacity: 0.5;
+  }
+  26%,
+  62% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+  72%,
+  100% {
+    transform: scaleX(0);
+    opacity: 0.5;
+  }
+}
+
+.landing-pulse {
+  animation: landing-pulse 2.6s ease-in-out infinite;
+}
+
+@keyframes landing-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.82);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.landing-blink {
+  animation: landing-blink 1.1s steps(1, end) infinite;
+}
+
+@keyframes landing-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The sweep rests as drawn: nothing is ever written onto it without a pointer. */
+  .landing-sweep-breath,
+  .landing-marquee-track,
+  .landing-step,
+  .landing-bar,
+  .landing-pulse,
+  .landing-blink {
+    animation: none !important;
+  }
+}
