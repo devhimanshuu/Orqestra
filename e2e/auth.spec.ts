@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { DEMO_EMAIL, DEMO_PASSWORD } from "./support/credentials";
 
 /**
  * Phase 0 integration smoke: Next.js → Authentication → Database → Redis → API.
@@ -13,14 +14,14 @@ test.describe("authentication", () => {
     await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   });
 
-  test("seeded demo user can sign in and see the system status", async ({ page }) => {
+  test("seeded demo user can sign in and reach the projects dashboard", async ({ page }) => {
     await page.goto("/login");
-    await page.getByLabel("Email").fill("demo@orqestra.dev");
-    await page.getByLabel("Password").fill("orqestra-demo-password");
+    await page.getByLabel("Email").fill(DEMO_EMAIL);
+    await page.getByLabel("Password").fill(DEMO_PASSWORD);
     await page.getByRole("button", { name: "Sign in" }).click();
 
     await expect(page).toHaveURL(/\/dashboard$/, { timeout: 20_000 });
-    await expect(page.getByText("demo@orqestra.dev")).toBeVisible();
-    await expect(page.getByText("System status")).toBeVisible();
+    await expect(page.getByText(DEMO_EMAIL)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
   });
 });

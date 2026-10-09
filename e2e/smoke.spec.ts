@@ -3,8 +3,14 @@ import { expect, test } from "@playwright/test";
 test.describe("Phase 0 smoke", () => {
   test("application loads", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: "Orqestra" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Sign in" })).toBeVisible();
+    // The marketing landing page: its wordmark names the product, the display
+    // headline states what it is, and both calls to action lead into the app.
+    await expect(page.getByRole("link", { name: "orqestra" }).first()).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /harness engineering infrastructure/i }),
+    ).toBeVisible();
+    await expect(page.getByRole("link", { name: "Sign in" }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Start building" }).first()).toBeVisible();
   });
 
   test("login page renders the credential form", async ({ page }) => {

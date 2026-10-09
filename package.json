@@ -20,6 +20,7 @@
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
+    "icons": "tsx scripts/generate-icons.ts",
     "worker": "tsx src/modules/runtime/worker.ts",
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },
