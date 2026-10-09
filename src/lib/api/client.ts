@@ -33,7 +33,10 @@ export type HarnessValidationCode =
   | "DEAD_END_NODE"
   | "NON_TERMINAL_END_NODE"
   | "CONDITION_MISSING_BRANCH"
-  | "UNDECLARED_CYCLE";
+  | "UNDECLARED_CYCLE"
+  // Runtime compilation adds these: a node cannot execute, or its config is invalid.
+  | "NODE_NOT_EXECUTABLE"
+  | "NODE_CONFIG_INVALID";
 
 export interface ApiIssue {
   code: HarnessValidationCode;
