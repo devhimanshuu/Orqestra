@@ -276,6 +276,15 @@ model Run {
   cost             Float?
   latencyMs        Int?
   error            Json?
+  // Runtime provenance: engine version, harness content hash, limits, node
+  // inventory, provider pins. Immutable once the run starts.
+  metadata         Json?
+  // Retry chain: a retry creates a NEW run that points at its predecessor.
+  attempt          Int           @default(1)
+  retryOfRunId     String?
+  // Set by POST /runs/:id/cancel; the runtime observes it between nodes and in
+  // every in-flight provider/tool call.
+  cancelRequestedAt DateTime?
   startedAt        DateTime?
   completedAt      DateTime?
   createdAt        DateTime      @default(now())
@@ -283,9 +292,12 @@ model Run {
   harness          Harness       @relation(fields: [harnessId], references: [id], onDelete: Cascade)
   harnessVersion   HarnessVersion @relation(fields: [harnessVersionId], references: [id], onDelete: Restrict)
   steps            RunStep[]
+  events           RuntimeEvent[]
+  usage            UsageRecord[]
 
   @@index([harnessVersionId])
   @@index([harnessId, status])
+  @@index([agentId, createdAt])
   @@index([createdAt])
 }
 
@@ -301,6 +313,10 @@ model RunStep {
   input      Json?
   output     Json?
   error      Json?
+  // Executor specifics: branch taken, condition explanation, tool id, plan size…
+  metadata   Json?
+  // Loop iteration at the time the step ran (null outside loops).
+  iteration  Int?
   startedAt  DateTime?
   completedAt DateTime?
   durationMs Int?
@@ -319,4 +335,41 @@ model Trace {
   events     Json
   createdAt  DateTime @default(now())
   runStep    RunStep  @relation(fields: [runStepId], references: [id], onDelete: Cascade)
+}
+
+// Run-level event log: the ground truth for the timeline, SSE replay and
+// future evaluation/analytics. Steps carry a per-step trace; this table keeps
+// the full ordered stream (including run-level events).
+model RuntimeEvent {
+  id      String   @id @default(cuid())
+  runId   String
+  // Monotonic per run, assigned by the runtime event emitter.
+  seq     Int
+  type    String
+  payload Json
+  at      DateTime
+  createdAt DateTime @default(now())
+  run     Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, seq])
+  @@index([runId, type])
+}
+
+// Provider-independent usage aggregation: one row per (run, provider, model).
+model UsageRecord {
+  id               String   @id @default(cuid())
+  runId            String
+  provider         String
+  model            String
+  calls            Int      @default(0)
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  totalTokens      Int      @default(0)
+  // Null when the model has no known price — never guessed.
+  costUsd          Float?
+  createdAt        DateTime @default(now())
+  run              Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, provider, model])
+  @@index([runId])
 }
