@@ -69,9 +69,9 @@ export function NodeLibrary() {
   }, [query]);
 
   function addNode(type: HarnessNodeType) {
-    const store = useEditorStore.getState();
-    const cascade = store.nodes.length % 8;
-    store.addNode(type, { x: 120 + cascade * 36, y: 120 + cascade * 36 });
+    // Library clicks have no drop point; the store picks a free slot so nodes
+    // never land on top of each other (which would hide their handles).
+    useEditorStore.getState().addNode(type, { x: 0, y: 0 }, { avoidOverlap: true });
   }
 
   return (

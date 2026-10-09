@@ -2,10 +2,7 @@
 
 import { create } from "zustand";
 import { NODE_CONFIG_SCHEMAS, type HarnessNodeType } from "../harness.schema";
-import {
-  validateHarnessDefinition,
-  type HarnessValidationIssue,
-} from "../harness.validation";
+import { validateHarnessDraft, type HarnessValidationIssue } from "../harness.validation";
 import {
   createCanvasNode,
   nextEdgeId,
@@ -81,7 +78,16 @@ interface EditorActions {
   duplicateSelection: () => string[];
   focusNode: (nodeId: string) => void;
 
-  addNode: (type: HarnessNodeType, position: { x: number; y: number }) => string;
+  /**
+   * Adds a node. With `avoidOverlap` the position is recomputed to a free slot
+   * near the graph (used by library clicks, which have no natural drop point);
+   * drag-and-drop passes the exact drop position instead.
+   */
+  addNode: (
+    type: HarnessNodeType,
+    position: { x: number; y: number },
+    options?: { avoidOverlap?: boolean },
+  ) => string;
   removeNodes: (nodeIds: string[]) => void;
   duplicateNodes: (nodeIds: string[], offset?: number) => string[];
   /** Records a pre-mutation snapshot so an interaction collapses into one undo step. */
@@ -210,15 +216,34 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
   selectNode: (selectedNodeId) => set({ selectedNodeId }),
 
-  setSelection: ({ nodes, edges }) => set({ selectedNodeIds: nodes, selectedEdgeIds: edges }),
+  setSelection: ({ nodes, edges }) =>
+    set((state) => {
+      // React Flow owns canvas selection (selectedNodeIds), while the inspector
+      // and the single-node actions read selectedNodeId. Without this sync a
+      // click highlights a node on the canvas but the inspector keeps editing
+      // whichever node was last selected programmatically (e.g. last added).
+      const previous = state.selectedNodeId;
+      const previousStillExists =
+        previous !== null && state.nodes.some((node) => node.id === previous);
+      const selectedNodeId =
+        nodes.length === 0
+          ? previousStillExists
+            ? previous
+            : null
+          : previous !== null && nodes.includes(previous)
+            ? previous
+            : (nodes[0] ?? null);
+      return { selectedNodeIds: nodes, selectedEdgeIds: edges, selectedNodeId };
+    }),
 
   duplicateSelection: () => {
     const state = get();
-    const ids = state.selectedNodeIds.length > 0
-      ? state.selectedNodeIds
-      : state.selectedNodeId
-        ? [state.selectedNodeId]
-        : [];
+    const ids =
+      state.selectedNodeIds.length > 0
+        ? state.selectedNodeIds
+        : state.selectedNodeId
+          ? [state.selectedNodeId]
+          : [];
     if (ids.length === 0) {
       return [];
     }
@@ -232,11 +257,11 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       focusRequest: { nodeId, nonce: (state.focusRequest?.nonce ?? 0) + 1 },
     })),
 
-  addNode: (type, position) => {
+  addNode: (type, position, options) => {
     const state = get();
     const node = createCanvasNode(
       type,
-      position,
+      options?.avoidOverlap === true ? findFreeSlot(state.nodes) : position,
       state.nodes.map((existing) => existing.id),
     );
     const decorated = decorateNodes([node])[0]!;
@@ -261,9 +286,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     const removing = new Set(nodeIds);
     set({
       nodes: state.nodes.filter((node) => !removing.has(node.id)),
-      edges: state.edges.filter(
-        (edge) => !removing.has(edge.source) && !removing.has(edge.target),
-      ),
+      edges: state.edges.filter((edge) => !removing.has(edge.source) && !removing.has(edge.target)),
       selectedNodeId: null,
       past: truncate([...state.past, { nodes: state.nodes, edges: state.edges }]),
       future: [],
@@ -471,7 +494,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     const definition = reactFlowToHarness(state.nodes, state.edges, {
       name: state.harnessName || "Harness",
     });
-    const result = validateHarnessDefinition(definition);
+    const result = validateHarnessDraft(definition);
     const issues = result.ok ? [] : result.issues;
 
     const errorCounts = new Map<string, number>();
@@ -565,9 +588,52 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   reset: () => set({ ...EMPTY_STATE }),
 }));
 
+/**
+ * Placement geometry for auto-placed nodes. The card width is fixed at 210px
+ * (see harness-node.tsx); the box is slightly larger so slots never touch.
+ */
+const NODE_CARD = { width: 210, height: 92 };
+const SLOT_GAP = 44;
+const SLOT_COLUMNS = 4;
+
+/**
+ * First free slot below the existing graph.
+ *
+ * Library clicks have no drop position, and the previous behaviour (a fixed
+ * diagonal cascade) stacked fresh nodes on top of each other — which also
+ * covered their connection handles.
+ */
+function findFreeSlot(nodes: HarnessCanvasNode[]): { x: number; y: number } {
+  if (nodes.length === 0) {
+    return { x: 120, y: 140 };
+  }
+  const originX = Math.min(...nodes.map((node) => node.position.x));
+  const originY = Math.max(...nodes.map((node) => node.position.y)) + NODE_CARD.height + SLOT_GAP;
+
+  const collides = (candidate: { x: number; y: number }): boolean =>
+    nodes.some(
+      (node) =>
+        Math.abs(node.position.x - candidate.x) < NODE_CARD.width &&
+        Math.abs(node.position.y - candidate.y) < NODE_CARD.height,
+    );
+
+  for (let index = 0; index < SLOT_COLUMNS * 8; index += 1) {
+    const candidate = {
+      x: originX + (index % SLOT_COLUMNS) * (NODE_CARD.width + SLOT_GAP * 0.5),
+      y: originY + Math.floor(index / SLOT_COLUMNS) * (NODE_CARD.height + SLOT_GAP),
+    };
+    if (!collides(candidate)) {
+      return candidate;
+    }
+  }
+  return { x: originX, y: originY };
+}
+
 /** Convenience selector: the node currently open in the inspector. */
 export function useSelectedNode(): HarnessCanvasNode | null {
-  return useEditorStore((state) => state.nodes.find((node) => node.id === state.selectedNodeId) ?? null);
+  return useEditorStore(
+    (state) => state.nodes.find((node) => node.id === state.selectedNodeId) ?? null,
+  );
 }
 
 /** Node type of an arbitrary node id (used for edge labels during connect). */
@@ -578,4 +644,3 @@ export function nodeTypeOf(nodes: HarnessCanvasNode[], nodeId: string): HarnessN
 export function isDirty(state: EditorStoreState): boolean {
   return state.revision > state.savedRevision;
 }
-

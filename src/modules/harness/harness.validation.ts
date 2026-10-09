@@ -1,6 +1,9 @@
 import {
+  HARNESS_SCHEMA_VERSION,
   getHandleSpec,
   harnessDefinitionSchema,
+  harnessDraftDocumentSchema,
+  harnessNodeSchema,
   type HarnessDefinition,
   type HarnessEdge,
   type HarnessNode,
@@ -51,7 +54,10 @@ export type HarnessValidationCode =
   | "DEAD_END_NODE"
   | "NON_TERMINAL_END_NODE"
   | "CONDITION_MISSING_BRANCH"
-  | "UNDECLARED_CYCLE";
+  | "UNDECLARED_CYCLE"
+  /** Phase 2 runtime additions: a node cannot run, or its config is unusable. */
+  | "NODE_NOT_EXECUTABLE"
+  | "NODE_CONFIG_INVALID";
 
 export interface HarnessValidationIssue {
   code: HarnessValidationCode;
@@ -141,7 +147,10 @@ function stronglyConnectedComponents(nodes: string[], graph: Map<string, string[
       work.pop();
       const parent = work[work.length - 1];
       if (parent !== undefined) {
-        low.set(parent.node, Math.min(low.get(parent.node) as number, low.get(frame.node) as number));
+        low.set(
+          parent.node,
+          Math.min(low.get(parent.node) as number, low.get(frame.node) as number),
+        );
       }
       if (low.get(frame.node) === index.get(frame.node)) {
         const component: string[] = [];
@@ -160,21 +169,90 @@ function stronglyConnectedComponents(nodes: string[], graph: Map<string, string[
   return components;
 }
 
+function schemaIssues(error: {
+  issues: Array<{ path: PropertyKey[]; message: string }>;
+}): HarnessValidationIssue[] {
+  return error.issues.map((issue) => ({
+    code: "INVALID_SCHEMA" as const,
+    message: `${issue.path.map(String).join(".") || "(root)"}: ${issue.message}`,
+  }));
+}
+
+/**
+ * Validates a *published* harness definition — the strict envelope, where
+ * `id`/`version`/`entryNode`/`exitNodes` are all present. Used for publishing,
+ * importing and anywhere a complete definition is expected.
+ */
 export function validateHarnessDefinition(input: unknown): HarnessValidationResult {
   const upgraded = upgradeHarnessDefinition(input);
   const parsed = harnessDefinitionSchema.safeParse(upgraded);
   if (!parsed.success) {
-    return {
-      ok: false,
-      definition: null,
-      issues: parsed.error.issues.map((issue) => ({
-        code: "INVALID_SCHEMA" as const,
-        message: `${issue.path.join(".") || "(root)"}: ${issue.message}`,
-      })),
-    };
+    return { ok: false, definition: null, issues: schemaIssues(parsed.error) };
+  }
+  return runGraphChecks(parsed.data);
+}
+
+/**
+ * Validates a *draft* document — what the builder holds while editing, and
+ * what autosave stores.
+ *
+ * Drafts are the common case: `id`/`version` are assigned at publish time, and
+ * entry/exit are derived from the Start/End nodes when absent. Validating a
+ * draft with the published envelope would report envelope complaints
+ * (`id: expected string`) instead of the graph problems the editor exists to
+ * surface — every draft would look invalid.
+ */
+export function validateHarnessDraft(input: unknown): HarnessValidationResult {
+  const upgraded = upgradeHarnessDefinition(input);
+  const parsed = harnessDraftDocumentSchema.safeParse(upgraded);
+  if (!parsed.success) {
+    return { ok: false, definition: null, issues: schemaIssues(parsed.error) };
   }
 
-  const definition = parsed.data;
+  const draft = parsed.data;
+  const startNode = draft.nodes.find((node) => node.type === "start");
+  const exitNodes = draft.nodes.filter((node) => node.type === "end").map((node) => node.id);
+  const definition = {
+    schemaVersion: HARNESS_SCHEMA_VERSION,
+    id: draft.id ?? "draft",
+    version: draft.version ?? 1,
+    name: draft.name ?? "Untitled harness",
+    ...(draft.description === undefined ? {} : { description: draft.description }),
+    nodes: draft.nodes,
+    edges: draft.edges,
+    entryNode: draft.entryNode ?? startNode?.id ?? "",
+    exitNodes: draft.exitNodes ?? exitNodes,
+  } as HarnessDefinition;
+
+  // Draft configs are stored loosely so a half-typed value never blocks
+  // editing, but typos and wrong types must still be reported: `harnessNodeSchema`
+  // is the same authority that runs at publish time, so the editor and the
+  // publish gate agree on what is wrong.
+  const configIssues: HarnessValidationIssue[] = [];
+  for (const node of definition.nodes) {
+    const parsedNode = harnessNodeSchema.safeParse(node);
+    if (parsedNode.success) {
+      continue;
+    }
+    for (const issue of parsedNode.error.issues) {
+      const path = issue.path.map(String).join(".");
+      configIssues.push({
+        code: "INVALID_SCHEMA",
+        message: `${node.id}.${path || "(root)"}: ${issue.message}`,
+        nodeId: node.id,
+      });
+    }
+  }
+
+  const result = runGraphChecks(definition);
+  if (configIssues.length === 0) {
+    return result;
+  }
+  return { ok: false, definition: null, issues: [...configIssues, ...result.issues] };
+}
+
+/** Graph rules shared by drafts and published definitions. */
+function runGraphChecks(definition: HarnessDefinition): HarnessValidationResult {
   const issues: HarnessValidationIssue[] = [];
   const nodeById = new Map<string, HarnessNode>();
 
@@ -284,7 +362,13 @@ export function validateHarnessDefinition(input: unknown): HarnessValidationResu
       message: `entryNode "${definition.entryNode}" must be the Start node "${startNode.id}"`,
       nodeId: definition.entryNode,
     });
-  } else if (startNode === undefined && !nodeById.has(definition.entryNode)) {
+  } else if (
+    startNode === undefined &&
+    // Drafts derive an empty entryNode when the graph has no Start node yet;
+    // MISSING_START_NODE above already reports that, so don't double-report.
+    definition.entryNode !== "" &&
+    !nodeById.has(definition.entryNode)
+  ) {
     issues.push({
       code: "MISSING_ENTRY_NODE",
       message: `entryNode "${definition.entryNode}" does not exist`,
@@ -355,10 +439,7 @@ export function validateHarnessDefinition(input: unknown): HarnessValidationResu
     }
   }
 
-  const canFinish = reachableFrom(
-    definition.exitNodes,
-    reverseGraph,
-  );
+  const canFinish = reachableFrom(definition.exitNodes, reverseGraph);
   for (const node of definition.nodes) {
     if (!canFinish.has(node.id)) {
       issues.push({

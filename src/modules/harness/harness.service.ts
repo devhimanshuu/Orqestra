@@ -1,12 +1,12 @@
 import type { AuthUser } from "@/lib/auth/provider";
-import { ConflictError, NotFoundError, ValidationFailedError } from "@/lib/errors";
+import { NotFoundError, ValidationFailedError } from "@/lib/errors";
 import { logger } from "@/lib/logging/logger";
 import { slugifyOrDefault } from "@/lib/slugify";
 import { assertAgentAccess, assertHarnessAccess } from "@/modules/access/access.service";
 import { harnessDraftDocumentSchema, type HarnessDefinition } from "./harness.schema";
 import { harnessRepository } from "./harness.repository";
 import { hashHarnessDefinition } from "./harness.serialize";
-import { validateHarnessDefinition } from "./harness.validation";
+import { validateHarnessDefinition, validateHarnessDraft } from "./harness.validation";
 import {
   createHarnessSchema,
   duplicateHarnessSchema,
@@ -28,7 +28,7 @@ import type {
   PublishVersionInput,
   PublishVersionResult,
 } from "./harness.types";
-import { HarnessConflictError, HarnessNotFoundError, HarnessValidationError } from "./harness.types";
+import { HarnessConflictError, HarnessValidationError } from "./harness.types";
 import type { HarnessValidationIssue, HarnessValidationResult } from "./harness.validation";
 
 /**
@@ -65,6 +65,23 @@ function assertValidOrThrow(input: unknown): HarnessDefinition {
     throw new HarnessValidationError(result.issues);
   }
   return result.definition;
+}
+
+/**
+ * Stamps the envelope that only publishing/knows (id, version) onto a
+ * draft-shaped document and validates it strictly.
+ *
+ * Drafts and imported files legitimately carry no `id`/`version` — the server
+ * assigns them. Validating before stamping made every draft fail with
+ * "id: expected string" instead of the graph being checked.
+ */
+function stampAndValidate(
+  input: unknown,
+  envelope: { id: string; version: number },
+): HarnessDefinition {
+  const document: Record<string, unknown> =
+    typeof input === "object" && input !== null ? (input as Record<string, unknown>) : {};
+  return assertValidOrThrow({ ...document, ...envelope });
 }
 
 function countsOf(definition: HarnessDefinition): { nodeCount: number; edgeCount: number } {
@@ -104,13 +121,11 @@ export async function createHarness(
   const parsed = createHarnessSchema.parse(input);
   const agent = await assertAgentAccess(user.id, agentId);
 
-  const definition: HarnessDefinition =
-    parsed.definition === undefined
-      ? defaultHarnessDefinition(parsed.name)
-      : { ...assertValidOrThrow(parsed.definition), name: parsed.name };
-
   const slug = await uniqueSlugFor(agent.projectId, parsed.slug ?? parsed.name);
-  const stamped: HarnessDefinition = { ...definition, id: slug, version: 1 };
+  const stamped: HarnessDefinition =
+    parsed.definition === undefined
+      ? { ...defaultHarnessDefinition(parsed.name), id: slug, version: 1 }
+      : { ...stampAndValidate(parsed.definition, { id: slug, version: 1 }), name: parsed.name };
   const created = await harnessRepository.createWithVersion({
     projectId: agent.projectId,
     agentId: agent.id,
@@ -159,7 +174,7 @@ export async function getHarnessDetail(user: AuthUser, harnessId: string): Promi
   const validation =
     currentDefinition === null
       ? { ok: false as const, issues: [] as HarnessValidationIssue[] }
-      : validateHarnessDefinition(currentDefinition);
+      : validateHarnessDraft(currentDefinition);
 
   return {
     harness,
@@ -182,7 +197,7 @@ export async function saveHarnessDraft(
   const harness = await assertHarnessAccess(user.id, harnessId);
 
   const { nodes, edges, raw } = parseDraftDocument(parsed.definition);
-  const validation = validateHarnessDefinition(raw);
+  const validation = validateHarnessDraft(raw);
   // An archived harness stays archived even if its draft is valid.
   const status: HarnessStatus =
     harness.status === "ARCHIVED" ? "ARCHIVED" : validation.ok ? "VALID" : "INVALID";
@@ -208,7 +223,7 @@ export async function validateHarnessForUser(
 ): Promise<HarnessValidationResult> {
   await assertHarnessAccess(user.id, harnessId);
   const definition = (input as { definition?: unknown }).definition;
-  return validateHarnessDefinition(definition);
+  return validateHarnessDraft(definition);
 }
 
 /** Publishes an immutable version from an explicit definition or the current draft. */
@@ -225,11 +240,12 @@ export async function publishHarnessVersion(
     throw new HarnessConflictError("There is nothing to publish yet — open the builder first");
   }
 
-  const definition = assertValidOrThrow(source);
   const latest = await harnessRepository.findLatestVersion(harness.id);
   const nextVersion = (latest?.version ?? 0) + 1;
 
-  const stamped: HarnessDefinition = { ...definition, id: harness.slug, version: nextVersion };
+  // A draft has no envelope yet: `id` is the harness slug and `version` is the
+  // next immutable version, both assigned here — so stamp before validating.
+  const stamped = stampAndValidate(source, { id: harness.slug, version: nextVersion });
   const contentHash = hashHarnessDefinition(stamped);
 
   if (latest !== null && latest.contentHash === contentHash) {
@@ -282,7 +298,8 @@ export async function updateHarness(
     status = "ARCHIVED";
   } else if (parsed.status === "DRAFT") {
     const draft = await harnessRepository.findDraft(harness.id);
-    status = draft === null ? "DRAFT" : validateHarnessDefinition(draft.definition).ok ? "VALID" : "INVALID";
+    status =
+      draft === null ? "DRAFT" : validateHarnessDraft(draft.definition).ok ? "VALID" : "INVALID";
   }
 
   const updated = await harnessRepository.updateHarness(harness.id, {
@@ -422,9 +439,9 @@ export async function importHarness(
   const agent = await assertAgentAccess(user.id, parsed.agentId);
   const document = parsed.document;
 
-  const definition = assertValidOrThrow(document.definition);
   const slug = await uniqueSlugFor(agent.projectId, document.harness.slug ?? document.harness.name);
-  const stamped: HarnessDefinition = { ...definition, id: slug, version: 1 };
+  // Imported files may be draft-shaped (no id/version): the import assigns them.
+  const stamped = stampAndValidate(document.definition, { id: slug, version: 1 });
 
   const created = await harnessRepository.createWithVersion({
     projectId: agent.projectId,

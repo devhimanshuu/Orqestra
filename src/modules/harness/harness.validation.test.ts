@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateHarnessDefinition } from "./harness.validation";
+import { validateHarnessDefinition, validateHarnessDraft } from "./harness.validation";
 
 // Intentionally loose: these tests feed *invalid* definitions, so the helper
 // must not reject them at compile time.
@@ -292,5 +292,66 @@ describe("validateHarnessDefinition", () => {
     expect(validateHarnessDefinition(null).ok).toBe(false);
     expect(validateHarnessDefinition({ nodes: [] }).ok).toBe(false);
     expect(validateHarnessDefinition("not-json").ok).toBe(false);
+  });
+});
+
+/**
+ * Drafts are what the builder holds mid-edit: they have no `id`/`version` yet
+ * (those are assigned at publish) and entry/exit are derived from Start/End.
+ * Validating them with the published envelope made every draft "invalid" with
+ * envelope complaints instead of real graph problems.
+ */
+describe("validateHarnessDraft", () => {
+  function draft(options: { withIdentity?: boolean; override?: Record<string, unknown> } = {}) {
+    // Drafts carry no envelope fields: the editor derives them at publish time.
+    const document: Record<string, unknown> = { ...(linearHarness() as Record<string, unknown>) };
+    delete document.id;
+    delete document.version;
+    if (options.withIdentity === true) {
+      document.id = "research-harness";
+      document.version = 1;
+    }
+    return { ...document, ...options.override };
+  }
+
+  it("accepts a draft without id/version and derives entry/exit", () => {
+    const result = validateHarnessDraft(draft());
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.definition.entryNode).toBe("start");
+      expect(result.definition.exitNodes).toEqual(["end"]);
+    }
+  });
+
+  it("still reports real graph problems", () => {
+    const result = validateHarnessDraft(
+      draft({ override: { edges: [{ id: "e0", source: "start", target: "planner" }] } }),
+    );
+    expect(codes(result)).toContain("DEAD_END_NODE");
+    expect(codes(result)).toContain("NO_PATH_TO_END");
+  });
+
+  it("accepts a draft that has no Start node yet, without a phantom entry error", () => {
+    const base = draft();
+    const nodes = (base.nodes as Array<{ id: string; type: string }>).filter(
+      (node) => node.type !== "start",
+    );
+    // The editor derives entry/exit pointers; without a Start node they are
+    // simply absent, and that must not add an entry-node error on top of the
+    // missing Start node.
+    const withoutPointers: Record<string, unknown> = { ...base };
+    delete withoutPointers.entryNode;
+    delete withoutPointers.exitNodes;
+    const result = validateHarnessDraft({ ...withoutPointers, nodes, edges: [] });
+    expect(codes(result)).toContain("MISSING_START_NODE");
+    expect(codes(result)).not.toContain("MISSING_ENTRY_NODE");
+  });
+
+  it("rejects drafts with unknown node config keys", () => {
+    const base = draft();
+    const nodes = (base.nodes as Array<Record<string, unknown>>).map((node) =>
+      node.id === "planner" ? { ...node, config: { instructions: "Plan", typo: 1 } } : node,
+    );
+    expect(codes(validateHarnessDraft({ ...base, nodes }))).toContain("INVALID_SCHEMA");
   });
 });
