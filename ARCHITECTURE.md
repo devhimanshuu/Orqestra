@@ -172,20 +172,57 @@ Run (pins harnessId + harnessVersionId, optional agentId/agentVersion)
 `Run` carries `status`, `input`, `output`, `tokenUsage`, `cost`, `latencyMs`,
 `error`, `startedAt`/`completedAt`; `RunStep` carries `index` (unique per run),
 `nodeId`/`nodeType`/`nodeLabel`, per-step input/output/error and timing. The model
-was designed before any UI so the Phase 3 run lab needs no schema migration, and
+was designed before any UI so the Phase 3 run lab needed no schema migration, and
 multi-step trajectories (the thing that makes agent debugging hard) are
 first-class from day one.
 
-### Evaluation and experiments (concepts now, tables later)
+### Evaluation engine (Phase 3)
 
-- [`evaluation.types.ts`](src/modules/evaluation/evaluation.types.ts) — `Dataset`,
-  `Evaluator` (`exact_match`, `contains`, `regex`, `json_schema`, `llm_judge`),
-  `Evaluation`/`EvaluationScore`.
+```text
+Dataset            mutable shell + working set
+ ├── DatasetCase[]            what the editor edits
+ └── DatasetVersion           immutable, content-hashed snapshot (what a batch pins)
+
+Evaluator          mutable shell (name, enabled)
+ └── EvaluatorVersion         immutable revision (kind + validated config + weight)
+
+EvaluationBatch    sealed experiment: harness version × dataset version × evaluator revisions
+ ├── EvaluationCaseResult     one dataset case: its run, its scores, its status
+ └── EvaluationResult         one evaluator's verdict on one run
+```
+
+- **Sealing is the contract.** A batch snapshots the harness version, the dataset
+  cases and every evaluator revision at creation. Editing a dataset or an evaluator
+  afterwards cannot change what a stored batch means — which is what makes a
+  comparison between two batches honest.
+- **Case execution reuses the ordinary runtime.**
+  [`case.runner.ts`](src/modules/evaluation/case.runner.ts) creates a run through
+  [`createPendingRun`](src/modules/runtime/run.service.ts) and executes it through
+  the same `executeRun` the worker uses; the run is tagged with its batch/case for
+  provenance. A failing run is still evaluated ("the agent was wrong" is the most
+  useful result), while a failing *evaluator* records an `ERROR` verdict and never
+  rewrites the run.
+- **Nothing is fabricated.** [`metrics.ts`](src/modules/evaluation/metrics.ts)
+  derives every number from persisted rows: a rate over zero items is `null`, token
+  totals report how many runs reported usage, cost is always an estimate carrying
+  its pricing source and unpriced models.
+- **Comparison refuses to guess.**
+  [`comparison.ts`](src/modules/evaluation/comparison.ts) refuses batches from
+  different datasets, aligns cases by stable `caseKey` (never position), and
+  reports the regression list (passed before, fails now) directly.
+- **Evaluators are read-only observers.** They receive a detached `RunObservation`
+  projection plus a validated config — never a database handle — and return a score
+  with an explanation and structured evidence.
+
+### Experiments (concepts now, tables later)
+
 - [`experiment.types.ts`](src/modules/experiments/experiment.types.ts) —
   `Experiment` with **version-pinned** `ExperimentVariant`s and `ExperimentRun`.
 
 Variants are pinned to `harnessVersionId` (never "latest") so an A/B comparison
-cannot silently drift when someone edits the harness mid-experiment.
+cannot silently drift when someone edits the harness mid-experiment. The
+evaluation engine already provides the ingredients (pinned versions, metrics,
+regression detection); the experiment layer will schedule variants over them.
 
 ### Memory (reserved)
 

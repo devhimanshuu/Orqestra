@@ -6,12 +6,13 @@ Orqestra is not another agent builder. The LLM is one component; the _harness_ �
 the way an agent reasons, uses tools, manages context and memory, loops, recovers
 from failures, and terminates — is the product.
 
-> **Current status: Phase 1 — Agent & Visual Harness Builder.**
-> Projects, agents, harnesses, the React Flow builder (node library, inspector,
-> graph validation), draft autosave, immutable versions, and JSON import/export
-> are in place. Execution, tracing, and evaluation land in later phases (see
-> [Roadmap](#roadmap)). Agent execution is deliberately _not_ wired up yet: the
-> UI never pretends to run a harness.
+> **Current status: Phase 3 — Run Lab, Observability & Evaluation Engine.**
+> Projects, agents, harnesses, the visual builder, the agent runtime (compiler →
+> execution plan → state machine → trace → SSE), the run lab (run history, run
+> detail, live timeline), and the evaluation engine (datasets, evaluators,
+> sealed evaluation batches, metrics, regression comparison, sanitized exports)
+> are in place. Experiments and harness evolution land in later phases (see
+> [Roadmap](#roadmap)).
 
 ---
 
@@ -85,11 +86,11 @@ src/
 │   ├── agents/           #   Agent / AgentVersion
 │   ├── harness/          #   DSL, validation, versioning, editor store
 │   ├── runtime/          #   compiler → executor → events → trace; runs, queues, worker
+│   ├── evaluation/       #   datasets, evaluators, batches, metrics, comparison
 │   ├── tools/            #   tool interface + registry + example tool
 │   ├── llm/              #   gateway + Gemini / Ollama adapters
-│   ├── evaluation/       #   concepts only (Phase 4)
-│   ├── experiments/      #   concepts only (Phase 5–6)
-│   └── memory/           #   reserved (Phase 7)
+│   ├── experiments/      #   concepts only (later phase)
+│   └── memory/           #   reserved (later phase)
 ├── lib/                  # infrastructure: db, redis, auth, logging, health, http
 ├── config/               # environment schema + validation
 └── types/                # DTOs shared between server and client
@@ -206,6 +207,42 @@ provider+model. Runs are immutable once finished: retrying creates a new run tha
 points back at its predecessor, and every run stores the pins needed to explain it
 later (engine version, harness content hash, model/provider, limits, transport).
 
+### The Phase 3 loop
+
+Datasets are versioned test corpora. A dataset's **working set** is editable; a
+published **version** is an immutable, content-hashed snapshot. Publishing an
+unchanged corpus returns the existing version instead of minting a duplicate.
+
+Evaluators are configured scoring procedures: deterministic checks
+(`exact_match`, `contains`, `json_schema`, `tool_usage`, `harness_compliance`) and
+`llm_judge`. A configuration is validated against its kind's strict schema before
+it is stored, and changing it publishes a **new immutable revision**.
+
+An evaluation is a **sealed batch**: harness version × dataset version ×
+pinned evaluator revisions. Creation snapshots all three, then executes case by
+case through the ordinary runtime — every case is a real run with a real trace.
+
+```text
+POST /api/datasets            → create (with optional inline cases) or list
+POST /api/datasets/:id/cases  → edit the working set (versions never change)
+POST /api/datasets/:id/versions → publish the working set (idempotent)
+POST /api/evaluators          → configure + validate an evaluator
+GET  /api/evaluators/validate → check a config without saving it
+POST /api/evaluations         → seal a batch → dispatch (queue or inline)
+GET  /api/evaluations/:id/cases   → case verdicts, paginated
+GET  /api/evaluations/:id/metrics → persisted metrics (never invented)
+POST /api/evaluations/:id/cancel  → cancel: keeps every result already produced
+GET  /api/evaluations/compare → align two batches by case key; report regressions
+GET  /api/evaluations/:id/export  → sanitized report (evidence is redacted)
+POST /api/runs/:id/evaluations    → score one finished run, without touching it
+```
+
+Evaluation rules are deliberately conservative: a missing score is never a zero
+and an unavailable metric is `null`, not `0`; a crashing evaluator records an
+`ERROR` verdict instead of failing the run; cost is always an estimate with its
+pricing source and unpriced models named; comparison refuses batches from
+different datasets and aligns cases by their stable `caseKey`, never by position.
+
 ## 6. Environment variables
 
 The environment is validated with Zod at startup (and inside `/api/health`).
@@ -275,10 +312,17 @@ pnpm verify      # lint + typecheck + unit tests + production build
   translation, tool registry behaviour, the harness compiler, the execution engine
   (node executors, expression resolver, condition evaluator, loop/iteration guards,
   retry + limits policies), and dispatcher transport selection.
-- **Runtime verification** (`pnpm exec tsx scripts/verify-phase2.ts`) executes a real
-  harness against the real database through the production path — happy path,
-  invalid tool, max iterations, retry, cancellation, worker job processing,
-  duplicate delivery and cancellation of a running run — and prints a check report.
+- **Runtime verification** (`pnpm exec tsx scripts/verify-phase2.ts`, or
+  `pnpm verify:phase2`) executes a real harness against the real database through
+  the production path — happy path, invalid tool, max iterations, retry,
+  cancellation, worker job processing, duplicate delivery and cancellation of a
+  running run — and prints a check report.
+- **Evaluation verification** (`pnpm exec tsx scripts/verify-phase3.ts`, or
+  `pnpm verify:phase3`) drives the whole evaluation engine against the real
+  database: dataset versions (including the no-op publish), evaluator validation
+  and revisions, a sealed baseline batch, a regressed candidate batch, the
+  regression comparison, run-level evaluation with SKIPPED semantics, sanitized
+  export, dataset export/import round trip, and the delete guards.
 - **E2E tests** run against a production build (Playwright starts
   `next build && next start` on port 3100) and require the database to be running,
   migrated, and seeded (`playwright.config.ts` loads `.env`, so tests use the same
@@ -292,7 +336,11 @@ pnpm verify      # lint + typecheck + unit tests + production build
     confirm every copy keeps the same nodes and edges;
   - **Phase 2 run UI**: run history with filters, the run detail timeline (steps,
     expandable trace, usage, reproducibility pins), state-appropriate controls
-    (cancel vs retry), and the builder's Run dialog with its execution preview.
+    (cancel vs retry), and the builder's Run dialog with its execution preview;
+  - **Phase 3 evaluation UI**: create a dataset → add a case → publish a version;
+    configure an evaluator (validated before saving, edits create revisions); start
+    an evaluation from the run lab and watch it settle on the detail page (progress,
+    metrics, case verdicts); compare two settled batches and read the verdict.
 - First run only: `pnpm exec playwright install chromium`.
 
 ## 9. Project structure
@@ -318,6 +366,20 @@ extension points for later phases. Key entry points:
 - Run UI: [`runs-view.tsx`](src/components/runs-view.tsx),
   [`run-detail-view.tsx`](src/components/run-detail-view.tsx),
   [`run-harness-dialog.tsx`](src/components/builder/run-harness-dialog.tsx)
+- Evaluation engine: [`dataset.service.ts`](src/modules/evaluation/dataset.service.ts),
+  [`evaluator.service.ts`](src/modules/evaluation/evaluator.service.ts),
+  [`evaluation.service.ts`](src/modules/evaluation/evaluation.service.ts),
+  [`case.runner.ts`](src/modules/evaluation/case.runner.ts),
+  [`jobs/orchestrator.ts`](src/modules/evaluation/jobs/orchestrator.ts),
+  [`metrics.ts`](src/modules/evaluation/metrics.ts),
+  [`comparison.ts`](src/modules/evaluation/comparison.ts)
+- Evaluator implementations: [`evaluators/`](src/modules/evaluation/evaluators)
+  (exact match, contains, JSON schema, tool usage, harness compliance, LLM judge)
+- Evaluation UI: [`datasets-view.tsx`](src/components/evaluation/datasets-view.tsx),
+  [`evaluators-view.tsx`](src/components/evaluation/evaluators-view.tsx),
+  [`evaluations-view.tsx`](src/components/evaluation/evaluations-view.tsx),
+  [`evaluation-detail-view.tsx`](src/components/evaluation/evaluation-detail-view.tsx),
+  [`comparison-view.tsx`](src/components/evaluation/comparison-view.tsx)
 - Run/trace model: [`run.types.ts`](src/modules/runtime/run.types.ts),
   [`prisma/schema.prisma`](prisma/schema.prisma)
 - LLM gateway: [`llm.gateway.ts`](src/modules/llm/llm.gateway.ts)
@@ -337,9 +399,9 @@ extension points for later phases. Key entry points:
 | ----- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **0** | **Foundation & architecture**    | delivered                                                                                                                                                                                                                                                     |
 | **1** | **Visual harness builder**       | delivered — projects, agents, harnesses, React Flow builder, node inspector, graph validation, draft autosave, immutable versions, import/export                                                                                                              |
-| **2** | **Agent runtime**                | **this repository state** — compiler → execution plan, state machine, node executors, expression resolver, loop/limits/retry policies, tool permissions, LLM gateway (Gemini/Ollama/mock), queue + worker, runs API, SSE updates, run history & run detail UI |
-| 3     | Evaluation framework             | Loop engineering, datasets/evaluators, harness optimization                                                                                                                                                                                                   |
-| 4     | Evaluation framework             | `Dataset`/`Evaluator`/`Evaluation` concepts, module boundary                                                                                                                                                                                                  |
+| **2** | **Agent runtime**                | delivered — compiler → execution plan, state machine, node executors, expression resolver, loop/limits/retry policies, tool permissions, LLM gateway (Gemini/Ollama/mock), queue + worker, runs API, SSE updates, run history & run detail UI                                  |
+| **3** | **Evaluation engine & run lab**  | **this repository state** — versioned datasets, configured evaluators (deterministic + LLM judge), sealed evaluation batches with pinned snapshots, per-case verdicts with evidence, persisted metrics, regression comparison, sanitized exports, run-level evaluation        |
+| 4     | **Experiments**                  | Version-pinned `Experiment`/`ExperimentVariant` A/B runs (concepts already fixed in `src/modules/experiments`)                                                                                                                                                     |
 | 5     | Harness versioning & A/B testing | immutable versions, content hashes, run→version pinning                                                                                                                                                                                                       |
 | 6     | Experiment engine                | `Experiment`/`ExperimentRun` concepts with version-pinned variants                                                                                                                                                                                            |
 | 7     | Loop engineering                 | `loop` node type, events, iteration state                                                                                                                                                                                                                     |
