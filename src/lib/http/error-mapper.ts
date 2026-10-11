@@ -8,6 +8,21 @@ import {
 } from "@/lib/errors";
 import { AgentInputError, AgentNotFoundError } from "@/modules/agents/agent.types";
 import {
+  DatasetConflictError,
+  DatasetInUseError,
+  DatasetNotFoundError,
+} from "@/modules/evaluation/dataset.types";
+import {
+  EvaluationBatchConflictError,
+  EvaluationBatchNotFoundError,
+  EvaluationStartError,
+} from "@/modules/evaluation/batch.types";
+import {
+  EvaluatorConflictError,
+  EvaluatorInvalidError,
+  EvaluatorNotFoundError as EvaluatorConfigNotFoundError,
+} from "@/modules/evaluation/evaluator.types";
+import {
   HarnessConflictError,
   HarnessNotFoundError,
   HarnessValidationError,
@@ -57,12 +72,33 @@ export function toErrorResponse(error: unknown): Response {
   if (
     error instanceof NotFoundError ||
     error instanceof HarnessNotFoundError ||
-    error instanceof AgentNotFoundError
+    error instanceof AgentNotFoundError ||
+    error instanceof DatasetNotFoundError ||
+    error instanceof EvaluatorConfigNotFoundError ||
+    error instanceof EvaluationBatchNotFoundError
   ) {
     return jsonError(404, "NOT_FOUND", error.message);
   }
 
-  if (error instanceof ConflictError || error instanceof HarnessConflictError) {
+  // Evaluation configuration problems are 400s when they describe the request
+  // (bad config, missing evaluators) and 409s when they describe a clash with
+  // existing state (duplicate batch, dataset still pinned).
+  if (error instanceof EvaluatorInvalidError) {
+    return jsonError(400, "EVALUATOR_INVALID", error.message, error.issues);
+  }
+  if (error instanceof EvaluationStartError) {
+    return jsonError(400, "EVALUATION_INVALID", error.message, error.issues);
+  }
+  if (error instanceof DatasetInUseError) {
+    return jsonError(409, "DATASET_IN_USE", error.message);
+  }
+  if (
+    error instanceof ConflictError ||
+    error instanceof HarnessConflictError ||
+    error instanceof DatasetConflictError ||
+    error instanceof EvaluatorConflictError ||
+    error instanceof EvaluationBatchConflictError
+  ) {
     return jsonError(409, "CONFLICT", error.message);
   }
 

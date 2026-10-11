@@ -3,6 +3,10 @@ import { slugifyOrDefault } from "@/lib/slugify";
 import type { AuthUser } from "@/lib/auth/provider";
 import { agentRepository } from "@/modules/agents/agent.repository";
 import type { Agent } from "@/modules/agents/agent.types";
+import { datasetRepository } from "@/modules/evaluation/dataset.repository";
+import type { Dataset } from "@/modules/evaluation/dataset.types";
+import { evaluatorRepository } from "@/modules/evaluation/evaluator.repository";
+import type { EvaluatorConfigRecord } from "@/modules/evaluation/evaluator.types";
 import { harnessRepository } from "@/modules/harness/harness.repository";
 import type { Harness } from "@/modules/harness/harness.types";
 import { projectRepository } from "@/modules/projects/project.repository";
@@ -51,6 +55,32 @@ export async function assertHarnessAccess(userId: string, harnessId: string): Pr
   }
   await assertProjectAccess(userId, harness.projectId);
   return harness;
+}
+
+/**
+ * Evaluation resources (Phase 3) hang off projects like agents and harnesses,
+ * so they use the same workspace-membership rule — and the same 404 (never a
+ * 403) so existence is not disclosed across tenants.
+ */
+export async function assertDatasetAccess(userId: string, datasetId: string): Promise<Dataset> {
+  const dataset = await datasetRepository.findById(datasetId);
+  if (dataset === null) {
+    throw new NotFoundError("Dataset not found");
+  }
+  await assertProjectAccess(userId, dataset.projectId);
+  return dataset;
+}
+
+export async function assertEvaluatorAccess(
+  userId: string,
+  evaluatorId: string,
+): Promise<EvaluatorConfigRecord> {
+  const evaluator = await evaluatorRepository.findById(evaluatorId);
+  if (evaluator === null) {
+    throw new NotFoundError("Evaluator not found");
+  }
+  await assertProjectAccess(userId, evaluator.projectId);
+  return evaluator;
 }
 
 /**
