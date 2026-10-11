@@ -7,10 +7,12 @@ import { harnessDraftDocumentSchema, type HarnessDefinition } from "./harness.sc
 import { harnessRepository } from "./harness.repository";
 import { hashHarnessDefinition } from "./harness.serialize";
 import { validateHarnessDefinition, validateHarnessDraft } from "./harness.validation";
+import { evaluationRepository } from "@/modules/evaluation/evaluation.repository";
 import {
   createHarnessSchema,
   duplicateHarnessSchema,
   importHarnessSchema,
+  promoteVersionSchema,
   publishVersionSchema,
   saveDraftSchema,
   updateHarnessSchema,
@@ -28,7 +30,7 @@ import type {
   PublishVersionInput,
   PublishVersionResult,
 } from "./harness.types";
-import { HarnessConflictError, HarnessValidationError } from "./harness.types";
+import { HarnessConflictError, HarnessPromoteError, HarnessValidationError } from "./harness.types";
 import type { HarnessValidationIssue, HarnessValidationResult } from "./harness.validation";
 
 /**
@@ -381,6 +383,95 @@ export async function getHarnessVersion(
   return version;
 }
 
+/**
+ * Promotes a harness to the harness version pinned by a finished evaluation
+ * batch, once that batch's pass rate clears the configured threshold.
+ *
+ * Promotion is deliberately one-directional: the harness only moves forward to
+ * a newer version. This is what makes "promote the winning version from a
+ * comparison" safe — it cannot accidentally roll the harness back to an older
+ * variant.
+ *
+ * Pass-rate gating: when `passRateThreshold` is provided (even as null), the
+ * winning batch must have a computed pass rate at or above it. A batch whose
+ * metrics were never computed (still in flight) cannot be promoted.
+ */
+export async function promoteHarnessVersion(
+  user: AuthUser,
+  harnessId: string,
+  input: unknown,
+): Promise<{ harnessVersion: HarnessVersion; promotedFrom: number }> {
+  const parsed = promoteVersionSchema.parse(input);
+  const harness = await assertHarnessAccess(user.id, harnessId);
+
+  // The batch pins a harnessVersionId; we cross-check that it belongs to this harness.
+  const batch = await evaluationRepository.findById(parsed.batchId);
+  if (batch === null) {
+    throw new NotFoundError("Evaluation batch not found");
+  }
+  if (batch.harnessId !== harness.id) {
+    throw new HarnessPromoteError(
+      "That batch was run against a different harness, so it cannot promote this one",
+    );
+  }
+
+  const harnessVersion = await harnessRepository.findVersionById(batch.harnessVersionId);
+  if (harnessVersion === null) {
+    throw new HarnessPromoteError("The batch pins a harness version that no longer exists");
+  }
+  if (harnessVersion.harnessId !== harness.id) {
+    throw new HarnessPromoteError(
+      "The batch pins a harness version that does not belong to this harness",
+    );
+  }
+
+  // Pass-rate gate.
+  const threshold = parsed.passRateThreshold ?? 0.75;
+  if (batch.metrics === null) {
+    throw new HarnessPromoteError(
+      "Cannot promote from a batch whose metrics have not been computed yet — wait for it to finish",
+    );
+  }
+  if (batch.metrics.passRate === null) {
+    throw new HarnessPromoteError(
+      "Cannot promote from a batch with no pass rate — its cases may not have a pass/fail verdict",
+    );
+  }
+  if (batch.metrics.passRate < threshold) {
+    throw new HarnessPromoteError(
+      `The winning batch's pass rate (${batch.metrics.passRate.toFixed(2)}/${threshold}) is below the promotion threshold`,
+    );
+  }
+
+  // One-directional: only advance to a newer version.
+  if (harnessVersion.version <= harness.currentVersion) {
+    throw new HarnessPromoteError(
+      `This harness is already at v${harness.currentVersion}; the winning batch pins v${harnessVersion.version}, which is not newer`,
+    );
+  }
+
+  await harnessRepository.updateHarness(harness.id, {
+    currentVersion: harnessVersion.version,
+    status: "VALID",
+    nodeCount: harnessVersion.definition.nodes.length,
+    edgeCount: harnessVersion.definition.edges.length,
+  });
+
+  logger.info("harness promoted", {
+    harnessId: harness.id,
+    fromVersion: harness.currentVersion,
+    toVersion: harnessVersion.version,
+    batchId: batch.id,
+    passRate: batch.metrics.passRate,
+    userId: user.id,
+  });
+
+  return {
+    harnessVersion,
+    promotedFrom: harness.currentVersion,
+  };
+}
+
 // ------------------------------------------------------------------------------
 // Portability: export / import
 // ------------------------------------------------------------------------------
@@ -474,5 +565,5 @@ export async function importHarness(
   return created;
 }
 
-export { HarnessValidationError };
+export { HarnessValidationError, HarnessPromoteError };
 export type { CreateHarnessInput, DuplicateHarnessInput, PublishVersionInput };

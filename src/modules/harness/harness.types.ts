@@ -161,3 +161,10 @@ export class HarnessConflictError extends Error {
     this.name = "HarnessConflictError";
   }
 }
+
+export class HarnessPromoteError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "HarnessPromoteError";
+  }
+}

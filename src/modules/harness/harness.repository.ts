@@ -238,6 +238,7 @@ export const harnessRepository = {
       status?: HarnessStatus;
       nodeCount?: number;
       edgeCount?: number;
+      currentVersion?: number;
     },
   ): Promise<Harness> {
     const row = await getPrisma().harness.update({
@@ -248,6 +249,9 @@ export const harnessRepository = {
         ...(input.status !== undefined ? { status: input.status } : {}),
         ...(input.nodeCount !== undefined ? { nodeCount: input.nodeCount } : {}),
         ...(input.edgeCount !== undefined ? { edgeCount: input.edgeCount } : {}),
+        ...(input.currentVersion !== undefined
+          ? { currentVersion: input.currentVersion }
+          : {}),
       },
     });
     return toHarness(row);

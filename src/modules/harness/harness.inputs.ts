@@ -21,6 +21,8 @@ export const updateHarnessSchema = z.object({
   description: z.string().trim().max(500).nullable().optional(),
   /** ARCHIVED hides the harness from pickers; DRAFT restores it (revalidated). */
   status: z.enum(["ARCHIVED", "DRAFT"]).optional(),
+  /** Advance the harness to a newer version (promotion). Only accepted when > current. */
+  currentVersion: z.number().int().min(1).optional(),
 });
 
 export const saveDraftSchema = z.object({
@@ -61,4 +63,11 @@ export const harnessExportDocumentSchema = z.object({
 export const importHarnessSchema = z.object({
   agentId: z.string().min(1),
   document: harnessExportDocumentSchema,
+});
+
+export const promoteVersionSchema = z.object({
+  /** A finished evaluation batch pinned to this harness; its pass rate gates promotion. */
+  batchId: z.string().min(1, "batchId is required"),
+  /** Minimum pass rate (0…1) the winning batch must clear before the harness advances. */
+  passRateThreshold: z.number().min(0).max(1).nullable().optional(),
 });
