@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import { ChevronRight } from "lucide-react";
+import { DashboardNav } from "@/components/dashboard-nav";
 import { RunsView, type RunFilterOption, type RunListRowDto } from "@/components/runs-view";
 import { getCurrentUser } from "@/lib/auth/session";
 import { logger } from "@/lib/logging/logger";
@@ -68,6 +69,7 @@ async function RunsData({ search }: { search: URLSearchParams }) {
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-10">
+      <DashboardNav current="/dashboard/runs" />
       <nav className="flex items-center gap-1 text-xs text-muted-foreground" aria-label="Breadcrumb">
         <Link href="/dashboard" className="hover:text-foreground">
           Dashboard
