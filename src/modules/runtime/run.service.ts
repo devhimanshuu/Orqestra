@@ -7,6 +7,8 @@ import { harnessRepository } from "@/modules/harness/harness.repository";
 import { HarnessConflictError } from "@/modules/harness/harness.types";
 import { compileHarness, previewHarnessCompilation } from "./compiler";
 import type { ExecutionPreview } from "./compiler";
+import { toRunObservation } from "@/modules/evaluation/observation";
+import type { RunObservation } from "@/modules/evaluation/evaluation.types";
 import { RUNTIME_ENGINE_VERSION } from "./runtime";
 import { DEFAULT_RUNTIME_LIMITS } from "./state/execution-state";
 import type { RuntimeExecutionLimits } from "./state/execution-state";
@@ -146,6 +148,103 @@ export async function createRun(user: AuthUser, body: CreateRunBody): Promise<Cr
   });
 
   return { run: { ...run, metadata: pinnedMetadata }, dispatch };
+}
+
+/**
+ * Creates a QUEUED run row **without dispatching it**.
+ *
+ * This is the entry point the evaluation engine uses: it builds exactly the
+ * same pins as `createRun` (harness version, agent version, compiled stats,
+ * limits, tool allowlist) but leaves execution to the caller, which runs it
+ * through the same `executeRun` the worker uses and then waits for the result.
+ *
+ * Authorization is the caller's responsibility — it must have already resolved
+ * agent/harness ownership (batch creation does).
+ */
+export interface CreatePendingRunInput {
+  agentId: string;
+  harnessVersionId: string;
+  input: unknown;
+  limits?: Partial<RuntimeExecutionLimits> | null;
+  /** Provenance, recorded in the metadata so a run explains where it came from. */
+  origin: "user" | "evaluation";
+  evaluationBatchId?: string | null;
+  evaluationCaseKey?: string | null;
+}
+
+export async function createPendingRun(input: CreatePendingRunInput): Promise<Run> {
+  const agent = await agentRepository.findById(input.agentId);
+  if (agent === null) {
+    throw new NotFoundError("Agent not found");
+  }
+
+  const harnessVersion = await harnessRepository.findVersionById(input.harnessVersionId);
+  if (harnessVersion === null) {
+    throw new NotFoundError("Harness version not found");
+  }
+  const harness = await harnessRepository.findById(harnessVersion.harnessId);
+  if (harness === null) {
+    throw new NotFoundError("Harness not found");
+  }
+  if (harness.agentId !== agent.id) {
+    throw new ConflictError("That harness version does not belong to this agent");
+  }
+
+  const compiled = compileHarness(harnessVersion.definition);
+  if (!compiled.ok) {
+    throw new HarnessConflictError(
+      `This harness version is not executable: ${compiled.issues
+        .map((issue) => issue.message)
+        .join("; ")}`,
+    );
+  }
+
+  const limits = resolveLimits(input.limits ?? undefined);
+  const agentVersion = await agentRepository.findLatestVersion(agent.id);
+  const providerRef = agentVersion?.modelConfig.model ?? null;
+  const metadata: RunMetadata = {
+    engineVersion: RUNTIME_ENGINE_VERSION,
+    harnessContentHash: harnessVersion.contentHash,
+    harnessVersion: harnessVersion.version,
+    nodeCount: compiled.plan.stats.nodeCount,
+    edgeCount: compiled.plan.stats.edgeCount,
+    nodeTypes: [...new Set(compiled.plan.nodes.map((node) => node.type))],
+    ...modelParts(providerRef),
+    limits,
+    allowedTools: agentVersion?.capabilities ?? [],
+    // Set to "inline" by the caller's execution path, which is honest: the run
+    // executes in whichever process called executeRun.
+    executionMode: "unknown",
+    origin: input.origin,
+    ...(input.evaluationBatchId != null ? { evaluationBatchId: input.evaluationBatchId } : {}),
+    ...(input.evaluationCaseKey != null ? { evaluationCaseKey: input.evaluationCaseKey } : {}),
+  };
+
+  return runRepository.create({
+    harnessId: harness.id,
+    harnessVersionId: harnessVersion.id,
+    input: input.input,
+    agentId: agent.id,
+    agentVersion: agentVersion?.version ?? null,
+    metadata,
+  });
+}
+
+/**
+ * Loads everything an evaluator may observe about a run, in the projection the
+ * evaluation domain uses (never Prisma rows).
+ */
+export async function loadRunObservation(runId: string): Promise<RunObservation> {
+  const withSteps = await runRepository.findByIdWithSteps(runId);
+  if (withSteps === null) {
+    throw new RunNotFoundError(runId);
+  }
+  return toRunObservation({
+    run: withSteps,
+    steps: withSteps.steps,
+    usage: withSteps.usage,
+    usageTotal: usageTotals(withSteps.usage, withSteps.tokenUsage),
+  });
 }
 
 /**

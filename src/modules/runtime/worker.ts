@@ -81,6 +81,9 @@ async function main(): Promise<void> {
   const { getEnv } = await import("@/config/env");
   const { getPrisma } = await import("@/lib/db/prisma");
   const { getToolRegistry } = await import("@/modules/tools");
+  // Loaded lazily so the run worker stays usable without the evaluation module.
+  const { startEvaluationWorker } = await import("@/modules/evaluation/jobs/worker");
+  const { EVALUATION_QUEUE_NAME } = await import("@/modules/evaluation/jobs/queues");
 
   const env = getEnv();
   getPrisma();
@@ -89,13 +92,17 @@ async function main(): Promise<void> {
   workerLogger.info("worker starting", {
     executionMode: env.RUN_EXECUTION_MODE,
     queue: RUN_QUEUE_NAME,
+    evaluationQueue: EVALUATION_QUEUE_NAME,
   });
 
   const worker = startRunWorker();
+  // One process, two queues: runs and evaluation batches (which execute their
+  // cases through the run executor in this same process).
+  const evaluationWorker = startEvaluationWorker();
 
   const shutdown = async (signal: string): Promise<void> => {
     workerLogger.info("worker shutting down", { signal });
-    await worker.close();
+    await Promise.all([worker.close(), evaluationWorker.close()]);
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));
