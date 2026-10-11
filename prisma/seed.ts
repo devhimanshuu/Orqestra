@@ -4,6 +4,9 @@ import { getEnv, type Env } from "../src/config/env";
 import type { AuthUser } from "../src/lib/auth/provider";
 import { getPrisma } from "../src/lib/db/prisma";
 import { agentRepository } from "../src/modules/agents/agent.repository";
+import { datasetRepository } from "../src/modules/evaluation/dataset.repository";
+import { evaluatorRepository } from "../src/modules/evaluation/evaluator.repository";
+import { hashJson } from "../src/modules/evaluation/hashing";
 import { harnessRepository } from "../src/modules/harness/harness.repository";
 import type { HarnessDefinition } from "../src/modules/harness/harness.schema";
 import { hashHarnessDefinition } from "../src/modules/harness/harness.serialize";
@@ -24,6 +27,67 @@ import { ensureLocalUser } from "../src/modules/users/user.service";
 
 const DEMO_SLUG = "demo-workspace";
 const DEMO_USER_NAME = "Demo User";
+
+/**
+ * Phase 3 demo fixtures: an agent + harness that actually execute (mock
+ * provider, one deterministic tool), a tiny dataset and two evaluators — so the
+ * run lab has something real to run on a fresh install.
+ */
+const EVAL_AGENT_NAME = "Evaluation Demo Agent";
+const EVAL_HARNESS_SLUG = "evaluation-demo-harness";
+const EVAL_DATASET_SLUG = "demo-eval-prompts";
+
+const EVAL_HARNESS: HarnessDefinition = {
+  schemaVersion: 2,
+  id: "evaluation-demo-harness",
+  version: 1,
+  name: "Evaluation demo harness",
+  description: "START -> TOOL(current_time) -> END (Phase 3 sample).",
+  nodes: [
+    { id: "start", type: "start", label: "Start", config: {}, position: { x: 0, y: 0 } },
+    {
+      id: "clock",
+      type: "tool",
+      label: "Clock",
+      config: { toolId: "current_time" },
+      position: { x: 320, y: 0 },
+    },
+    { id: "end", type: "end", label: "End", config: {}, position: { x: 640, y: 0 } },
+  ],
+  edges: [
+    { id: "e-start-clock", source: "start", target: "clock" },
+    { id: "e-clock-end", source: "clock", target: "end" },
+  ],
+  entryNode: "start",
+  exitNodes: ["end"],
+};
+
+const EVAL_DATASET_CASES = [
+  {
+    caseKey: "greet-1",
+    name: "Greeting",
+    input: "Say hello to the evaluator.",
+    expectedOutput: null,
+    metadata: null,
+    tags: ["smoke"],
+  },
+  {
+    caseKey: "greet-2",
+    name: "Second greeting",
+    input: "Introduce yourself in one sentence.",
+    expectedOutput: null,
+    metadata: null,
+    tags: ["smoke"],
+  },
+  {
+    caseKey: "time-1",
+    name: "Uses the clock",
+    input: "What time does the tool report?",
+    expectedOutput: null,
+    metadata: null,
+    tags: ["tool"],
+  },
+];
 
 // ASCII-only text keeps the seed portable across PostgreSQL clusters that are
 // not UTF-8 encoded (e.g. some Windows installs default to WIN1252).
@@ -327,6 +391,113 @@ async function main(): Promise<void> {
     });
   }
 
+  // --- Phase 3 demo fixtures (run lab) --------------------------------------
+  //
+  // These are *executable*: the mock provider needs no API key and the clock
+  // tool is deterministic, so a fresh install can run an evaluation immediately.
+  const evalAgentRow = await prisma.agent.findUnique({
+    where: { projectId_slug: { projectId: project.id, slug: "evaluation-demo-agent" } },
+  });
+  if (evalAgentRow === null) {
+    await agentRepository.createWithVersion({
+      projectId: project.id,
+      name: EVAL_AGENT_NAME,
+      slug: "evaluation-demo-agent",
+      description: "A deterministic agent for trying the evaluation run lab.",
+      purpose: "Answer short prompts; the harness provides the clock tool.",
+      instructions: "Answer the task in one sentence. State the tool result when asked.",
+      modelConfig: { model: "mock:deterministic", temperature: 0 },
+      capabilities: ["current_time"],
+      createdBy: identity.id,
+    });
+  }
+
+  const evalHarnessRow = await prisma.harness.findUnique({
+    where: { projectId_slug: { projectId: project.id, slug: EVAL_HARNESS_SLUG } },
+  });
+  if (evalHarnessRow === null) {
+    const evalAgent = await prisma.agent.findUnique({
+      where: { projectId_slug: { projectId: project.id, slug: "evaluation-demo-agent" } },
+      select: { id: true },
+    });
+    await harnessRepository.createWithVersion({
+      projectId: project.id,
+      ...(evalAgent !== null ? { agentId: evalAgent.id } : {}),
+      name: EVAL_HARNESS.name,
+      slug: EVAL_HARNESS_SLUG,
+      description: EVAL_HARNESS.description,
+      definition: EVAL_HARNESS,
+      contentHash: hashHarnessDefinition(EVAL_HARNESS),
+      entryNode: EVAL_HARNESS.entryNode,
+      nodeCount: EVAL_HARNESS.nodes.length,
+      edgeCount: EVAL_HARNESS.edges.length,
+      status: "VALID",
+      createdBy: identity.id,
+    });
+  }
+
+  const evalDatasetRow = await prisma.dataset.findUnique({
+    where: { projectId_slug: { projectId: project.id, slug: EVAL_DATASET_SLUG } },
+  });
+  if (evalDatasetRow === null) {
+    const dataset = await datasetRepository.create({
+      projectId: project.id,
+      name: "Demo evaluation prompts",
+      slug: EVAL_DATASET_SLUG,
+      description: "Three short prompts for the Phase 3 run lab.",
+      cases: EVAL_DATASET_CASES,
+    });
+    await datasetRepository.publishVersion({
+      datasetId: dataset.id,
+      version: 1,
+      name: "Initial version",
+      cases: EVAL_DATASET_CASES,
+      contentHash: hashJson(EVAL_DATASET_CASES),
+      createdBy: identity.id,
+    });
+  }
+
+  const evalEvaluators: Array<{
+    slug: string;
+    name: string;
+    description: string;
+    kind: string;
+    config: Record<string, unknown>;
+  }> = [
+    {
+      slug: "used-a-tool",
+      name: "Used a tool",
+      description: "Every case must invoke the current_time tool at least once.",
+      kind: "tool_usage",
+      config: { required: ["current_time"], minCalls: { current_time: 1 }, maxCalls: { current_time: 3 } },
+    },
+    {
+      slug: "has-output",
+      name: "Produced an output",
+      description: "The run must finish successfully before this check counts.",
+      kind: "harness_compliance",
+      config: { requiredNodes: ["start", "clock", "end"], requireSucceededRun: true },
+    },
+  ];
+  for (const entry of evalEvaluators) {
+    const existingEvaluator = await prisma.evaluator.findUnique({
+      where: { projectId_slug: { projectId: project.id, slug: entry.slug } },
+    });
+    if (existingEvaluator === null) {
+      await evaluatorRepository.createWithVersion({
+        projectId: project.id,
+        name: entry.name,
+        slug: entry.slug,
+        description: entry.description,
+        kind: entry.kind,
+        config: entry.config,
+        weight: 0,
+        contentHash: hashJson({ kind: entry.kind, config: entry.config, weight: 0 }),
+        createdBy: identity.id,
+      });
+    }
+  }
+
   process.stdout.write(
     [
       "Seed complete:",
@@ -335,6 +506,9 @@ async function main(): Promise<void> {
       `  project:   ${project.slug}`,
       "  agent:     research-agent (v1)",
       "  harness:   research-harness (v1, 6 nodes)",
+      `  run lab:   evaluation-demo-agent / ${EVAL_HARNESS_SLUG} (v1, 3 nodes)`,
+      `  dataset:   ${EVAL_DATASET_SLUG} (v1, ${EVAL_DATASET_CASES.length} cases)`,
+      "  evaluators: used-a-tool, has-output",
       "",
     ].join("\n"),
   );
