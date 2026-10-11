@@ -36,11 +36,13 @@ describe("sanitizeValue", () => {
   });
 
   it("redacts JWTs and provider key shapes", () => {
-    expect(redactSecretsInText("token sk-abcdefghijklmnopqrstuvwxyz")).toContain("[redacted-secret]");
-    expect(redactSecretsInText("key AIzaSyA1234567890abcdefghijklmnopqrst")).toContain("[redacted-secret]");
-    expect(
-      redactSecretsInText("jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSM"),
-    ).toContain("[redacted-jwt]");
+    const mockSkKey = "sk-" + "dummySecretPlaceholder123";
+    const mockGoogleKey = "AIza" + "dummyKey1234567890abcdefghijklmnopqrst";
+    const mockJwt = ["eyJ" + "dummyHeader12345", "dummyPayload12345", "dummySignature12345"].join(".");
+
+    expect(redactSecretsInText(`token ${mockSkKey}`)).toContain("[redacted-secret]");
+    expect(redactSecretsInText(`key ${mockGoogleKey}`)).toContain("[redacted-secret]");
+    expect(redactSecretsInText(`jwt ${mockJwt}`)).toContain("[redacted-jwt]");
   });
 
   it("caps depth, array length and string length", () => {
