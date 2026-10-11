@@ -7,6 +7,7 @@ import { z } from "zod";
  *  - required:            DATABASE_URL, REDIS_URL, BETTER_AUTH_SECRET
  *  - optional:            APP_URL, LOG_LEVEL
  *  - provider-specific:   GEMINI/GROQ/OPENAI/ANTHROPIC keys, OLLAMA_BASE_URL
+ *  - social sign-in:      GITHUB/GOOGLE OAuth app credentials (both halves)
  *  - development-only:    SEED_*
  *
  * The application validates this schema once at startup (see
@@ -59,6 +60,15 @@ export const envSchema = z.object({
   RUNTIME_MAX_TOOL_CALLS: z.coerce.number().int().min(1).max(10_000).default(20),
   /** Comma-separated extra origins allowed to call the auth API (wildcards supported). */
   BETTER_AUTH_TRUSTED_ORIGINS: z.string().default(""),
+
+  // --- optional, social sign-in (Better Auth socialProviders) ---------------
+  // A provider is enabled only when BOTH halves are set (see
+  // src/lib/auth/better-auth.provider.ts). With AUTH_URL set the hosted Neon
+  // Auth instance's own configuration wins instead; values are never echoed.
+  GITHUB_CLIENT_ID: z.string().default(""),
+  GITHUB_CLIENT_SECRET: z.string().default(""),
+  GOOGLE_CLIENT_ID: z.string().default(""),
+  GOOGLE_CLIENT_SECRET: z.string().default(""),
 
   // --- optional, provider-specific -----------------------------------------
   GEMINI_API_KEY: z.string().default(""),

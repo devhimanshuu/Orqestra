@@ -44,6 +44,18 @@ describe("validateEnv", () => {
     expect(result.success).toBe(false);
   });
 
+  it("treats social sign-in credentials as optional, defaulting to empty", () => {
+    const env = validateEnv(validEnv);
+    expect(env.GITHUB_CLIENT_ID).toBe("");
+    expect(env.GITHUB_CLIENT_SECRET).toBe("");
+    expect(env.GOOGLE_CLIENT_ID).toBe("");
+    expect(env.GOOGLE_CLIENT_SECRET).toBe("");
+
+    const withGoogle = validateEnv({ ...validEnv, GOOGLE_CLIENT_ID: "id", GOOGLE_CLIENT_SECRET: "secret" });
+    expect(withGoogle.GOOGLE_CLIENT_ID).toBe("id");
+    expect(withGoogle.GOOGLE_CLIENT_SECRET).toBe("secret");
+  });
+
   it("never echoes values in the error message", () => {
     const secret = "leaky-secret-value-that-should-not-appear-1234";
     try {
