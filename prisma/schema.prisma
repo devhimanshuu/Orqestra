@@ -108,16 +108,19 @@ model WorkspaceMember {
 }
 
 model Project {
-  id          String      @id @default(cuid())
-  workspaceId String
-  name        String
-  slug        String
-  description String?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  agents      Agent[]
-  harnesses   Harness[]
+  id                String            @id @default(cuid())
+  workspaceId       String
+  name              String
+  slug              String
+  description       String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  workspace         Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agents            Agent[]
+  harnesses         Harness[]
+  datasets          Dataset[]
+  evaluators        Evaluator[]
+  evaluationBatches EvaluationBatch[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
@@ -140,6 +143,8 @@ model Agent {
   project        Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   versions       AgentVersion[]
   harnesses      Harness[]
+  runs           Run[]
+  evaluationBatches EvaluationBatch[]
 
   @@unique([projectId, slug])
   @@index([projectId])
@@ -195,6 +200,7 @@ model Harness {
   versions       HarnessVersion[]
   draft          HarnessDraft?
   runs           Run[]
+  evaluationBatches EvaluationBatch[]
 
   @@unique([projectId, slug])
   @@index([projectId])
@@ -233,6 +239,7 @@ model HarnessVersion {
   createdAt    DateTime @default(now())
   harness      Harness  @relation(fields: [harnessId], references: [id], onDelete: Cascade)
   runs         Run[]
+  evaluations  EvaluationBatch[]
 
   @@unique([harnessId, version])
   @@index([harnessId, contentHash])
@@ -268,6 +275,7 @@ model Run {
   // Denormalised pins for quick filtering (nullable: harness-only runs are legal
   // in Phase 0; agent attribution becomes required once runtime lands).
   agentId          String?
+  agent            Agent?        @relation(fields: [agentId], references: [id], onDelete: SetNull)
   agentVersion     Int?
   status           RunStatus     @default(QUEUED)
   input            Json
@@ -294,6 +302,7 @@ model Run {
   steps            RunStep[]
   events           RuntimeEvent[]
   usage            UsageRecord[]
+  evaluations      EvaluationResult[]
 
   @@index([harnessVersionId])
   @@index([harnessId, status])
@@ -372,4 +381,292 @@ model UsageRecord {
 
   @@unique([runId, provider, model])
   @@index([runId])
+}
+
+// ==============================================================================
+// Phase 3 — Run Lab, Observability & Evaluation Engine
+//
+//   Dataset / DatasetVersion / DatasetCase — repeatable test inputs
+//   Evaluator / EvaluatorVersion           — reusable scoring procedures
+//   EvaluationBatch / CaseResult / Result  — one batch of scored runs
+//
+// The same immutability rule as harnesses applies one level up: a dataset has
+// a mutable working set (`DatasetCase` rows) and immutable, content-hashed
+// `DatasetVersion` snapshots; an `Evaluator` has mutable metadata and immutable
+// `EvaluatorVersion` revisions. A batch pins a harness version, a dataset
+// version and a snapshot of every evaluator it used, so a stored result can be
+// interpreted exactly the same way a year later.
+//
+// Evaluation is deliberately *not* a column on Run: one run can be scored by
+// many evaluators at different times, and an evaluator failure must never
+// change the run's own execution status. `EvaluationResult.runId` is therefore
+// an independent, indexed link (SetNull on run deletion) rather than a cascade.
+// ==============================================================================
+
+enum EvaluationBatchStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  PARTIALLY_COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum EvaluationCaseStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  SKIPPED
+  CANCELLED
+}
+
+enum EvaluationResultStatus {
+  COMPLETED
+  ERROR
+  SKIPPED
+}
+
+/** How an aggregate score treats evaluators that produced no usable score. */
+enum ScoringPolicy {
+  /** Require every weighted evaluator to produce a score. */
+  REQUIRE_ALL
+  /** Renormalise over the evaluators that did produce a score. */
+  IGNORE_MISSING
+}
+
+/** Whether an aggregate covered everything it was asked to score. */
+enum AggregateStatus {
+  COMPLETE
+  INCOMPLETE
+  FAILED
+}
+
+// ------------------------------------------------------------------------------
+// Datasets
+// ------------------------------------------------------------------------------
+
+model Dataset {
+  id             String           @id @default(cuid())
+  projectId      String
+  name           String
+  slug           String
+  description    String?
+  currentVersion Int              @default(1)
+  /** Denormalised for lists: number of cases in the mutable working set. */
+  caseCount      Int              @default(0)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  project        Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  cases          DatasetCase[]
+  versions       DatasetVersion[]
+  batches        EvaluationBatch[]
+
+  @@unique([projectId, slug])
+  @@index([projectId])
+}
+
+/** One row of the mutable working set. `caseKey` is the stable identity. */
+model DatasetCase {
+  id             String   @id @default(cuid())
+  datasetId      String
+  /** Stable, dataset-unique key used to align batches and comparisons. */
+  caseKey        String
+  name           String?
+  input          Json
+  expectedOutput Json?
+  metadata       Json?
+  tags           String[] @default([])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  dataset        Dataset  @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+
+  @@unique([datasetId, caseKey])
+  @@index([datasetId])
+}
+
+/**
+ * Immutable snapshot of every case at publish time. Batches pin a version, so
+ * editing the working set later cannot silently change what a stored batch
+ * means.
+ */
+model DatasetVersion {
+  id          String            @id @default(cuid())
+  datasetId   String
+  version     Int
+  name        String
+  /** DatasetCase-shaped snapshot array. */
+  cases       Json
+  caseCount   Int
+  contentHash String
+  createdBy   String?
+  createdAt   DateTime          @default(now())
+  dataset     Dataset           @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  batches     EvaluationBatch[] @relation("BatchDatasetVersion")
+
+  @@unique([datasetId, version])
+  @@index([datasetId, contentHash])
+}
+
+// ------------------------------------------------------------------------------
+// Evaluators
+// ------------------------------------------------------------------------------
+
+model Evaluator {
+  id             String             @id @default(cuid())
+  projectId      String
+  name           String
+  slug           String
+  description    String?
+  /** One of the built-in evaluator kinds (see src/modules/evaluation). */
+  kind           String
+  enabled        Boolean            @default(true)
+  currentVersion Int                @default(1)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  project        Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versions       EvaluatorVersion[]
+
+  @@unique([projectId, slug])
+  @@index([projectId])
+}
+
+/** Immutable revision of an evaluator's configuration. */
+model EvaluatorVersion {
+  id          String    @id @default(cuid())
+  evaluatorId String
+  version     Int
+  name        String
+  kind        String
+  description String?
+  /** Kind-specific configuration, validated against the evaluator's schema. */
+  config      Json
+  /** Default weight in [0, 1] used when a batch does not override it. */
+  weight      Float     @default(0)
+  contentHash String
+  createdBy   String?
+  createdAt   DateTime  @default(now())
+  evaluator   Evaluator @relation(fields: [evaluatorId], references: [id], onDelete: Cascade)
+
+  @@unique([evaluatorId, version])
+  @@index([evaluatorId, contentHash])
+}
+
+// ------------------------------------------------------------------------------
+// Evaluation batches
+// ------------------------------------------------------------------------------
+
+model EvaluationBatch {
+  id                String                @id @default(cuid())
+  projectId         String
+  /** Human label, e.g. "Regression run — v3 vs v4". */
+  label             String?
+  agentId           String
+  harnessId         String
+  harnessVersionId  String
+  datasetId         String
+  datasetVersionId  String
+  /** Snapshot of the dataset cases actually executed (immutable at start). */
+  datasetSnapshot   Json
+  /** Snapshot: [{ key, evaluatorId, version, kind, name, weight, config }]. */
+  evaluatorConfig   Json
+  /** Snapshot of the harness version's definition hash + label. */
+  harnessSnapshot   Json
+  scoringPolicy     ScoringPolicy         @default(REQUIRE_ALL)
+  /** Minimum weighted score for a case to count as passed (null = per-evaluator only). */
+  passThreshold     Float?
+  status            EvaluationBatchStatus @default(PENDING)
+  caseCount         Int
+  completedCount    Int                   @default(0)
+  failedCount       Int                   @default(0)
+  /** Aggregated metrics, computed when the batch reaches a terminal status. */
+  metrics           Json?
+  /** Batch execution settings: concurrency, per-case limits, runner. */
+  config            Json
+  cancelRequestedAt DateTime?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdBy         String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  project           Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  agent             Agent                 @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  harness           Harness               @relation(fields: [harnessId], references: [id], onDelete: Restrict)
+  harnessVersion    HarnessVersion        @relation(fields: [harnessVersionId], references: [id], onDelete: Restrict)
+  dataset           Dataset               @relation(fields: [datasetId], references: [id], onDelete: Restrict)
+  datasetVersion    DatasetVersion        @relation("BatchDatasetVersion", fields: [datasetVersionId], references: [id], onDelete: Restrict)
+  cases             EvaluationCaseResult[]
+  results           EvaluationResult[]
+
+  @@index([projectId, createdAt])
+  @@index([harnessVersionId])
+  @@index([datasetId])
+  @@index([status])
+}
+
+/** One dataset case inside a batch: its run, its scores, its status. */
+model EvaluationCaseResult {
+  id              String               @id @default(cuid())
+  batchId         String
+  /** Stable test-case identifier from the dataset snapshot. */
+  caseKey         String
+  /** Position in the dataset snapshot (0-based). */
+  index           Int
+  name            String?
+  status          EvaluationCaseStatus @default(PENDING)
+  /** The agent run this case produced (null when run creation failed). */
+  runId           String?
+  inputPreview    String?
+  expectedOutput  Json?
+  tags            String[]             @default([])
+  /** Weighted aggregate across this case's results. */
+  aggregateScore  Float?
+  aggregateStatus AggregateStatus?
+  /** Structured failure: run failure or evaluator failure — never both fused. */
+  error           Json?
+  attempts        Int                  @default(0)
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  batch           EvaluationBatch      @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  results         EvaluationResult[]
+
+  // Idempotency: redelivering a case job cannot create a second case row.
+  @@unique([batchId, caseKey])
+  @@index([batchId, status])
+  @@index([runId])
+}
+
+/** One evaluator's verdict on one run (case-level or standalone). */
+model EvaluationResult {
+  id               String                @id @default(cuid())
+  batchId          String?
+  caseResultId     String?
+  runId            String?
+  evaluatorId      String?
+  evaluatorVersion Int?
+  /** Snapshot identity so a result survives evaluator edits/deletion. */
+  evaluatorKey     String
+  evaluatorName    String
+  kind             String
+  status           EvaluationResultStatus @default(COMPLETED)
+  score            Float?
+  maxScore         Float                 @default(1)
+  normalizedScore  Float?
+  passed           Boolean?
+  explanation      String?
+  evidence         Json?
+  durationMs       Int?
+  metadata         Json?
+  createdAt        DateTime              @default(now())
+  batch            EvaluationBatch?      @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  caseResult       EvaluationCaseResult? @relation(fields: [caseResultId], references: [id], onDelete: Cascade)
+  run              Run?                  @relation(fields: [runId], references: [id], onDelete: SetNull)
+
+  // Idempotency: one verdict per evaluator per case, even under redelivery.
+  @@unique([caseResultId, evaluatorKey])
+  @@index([runId])
+  @@index([batchId])
+  @@index([caseResultId])
 }
