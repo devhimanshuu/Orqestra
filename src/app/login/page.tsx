@@ -1,13 +1,34 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { Space_Grotesk } from "next/font/google";
 import { Suspense } from "react";
+import { OrqestraMark } from "@/components/brand/orqestra-mark";
+import { InteractiveSweep } from "@/components/landing/interactive-sweep";
+import { ArrowLink, Container } from "@/components/landing/primitives";
+import { Starfield } from "@/components/landing/starfield";
 import { LoginForm } from "@/components/login-form";
 import { getAuthProvider } from "@/lib/auth";
+import { getEnv } from "@/config/env";
 
 export const metadata: Metadata = {
   title: "Sign in",
 };
+
+/**
+ * The sign-in page is part of the marketing surface, so it wears the landing
+ * page's design: the same black canvas, star field, sweep artwork, noise,
+ * header lockup and display typography — all scoped under `.landing`, which
+ * carries the palette and faces (see `globals.css`). The Space Grotesk display
+ * face is loaded here the same way `/` loads it.
+ */
+
+const spaceGrotesk = Space_Grotesk({
+  variable: "--font-display",
+  subsets: ["latin"],
+  display: "swap",
+});
 
 /**
  * Session reads are request-dependent, so they stream inside a Suspense
@@ -22,12 +43,70 @@ async function RedirectIfSignedIn(): Promise<null> {
 }
 
 export default function LoginPage() {
+  /*
+   * Social sign-in availability, server-side only (booleans — no credentials
+   * reach the client). Behind AUTH_URL the hosted Neon Auth instance owns its
+   * own provider configuration, so the buttons are offered optimistically and
+   * its answer is surfaced in the form's alert.
+   */
+  const env = getEnv();
+  const hostedAuth = env.AUTH_URL !== "";
+  const social = {
+    github: hostedAuth || (env.GITHUB_CLIENT_ID !== "" && env.GITHUB_CLIENT_SECRET !== ""),
+    google: hostedAuth || (env.GOOGLE_CLIENT_ID !== "" && env.GOOGLE_CLIENT_SECRET !== ""),
+  };
+
   return (
-    <main className="flex flex-1 items-center justify-center px-6 py-16">
+    <div className={`${spaceGrotesk.variable} landing relative min-h-dvh overflow-hidden`}>
       <Suspense fallback={null}>
         <RedirectIfSignedIn />
       </Suspense>
-      <LoginForm />
-    </main>
+
+      {/* The hero's base layers, verbatim: stars, sweep, grain, bottom fade. */}
+      <Starfield
+        className="pointer-events-none absolute inset-0 h-full w-full opacity-95"
+        density={0.00045}
+        maxRadius={1.15}
+      />
+      <InteractiveSweep />
+      <div aria-hidden="true" className="landing-noise pointer-events-none absolute inset-0" />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-[var(--home-bg)] to-transparent"
+      />
+
+      {/*
+       * The landing footer's closing mark, same treatment: the wordmark set to
+       * the width of the viewport, faint, with its bottom third sliced off by
+       * the page's own edge. It sits behind everything — the header and main
+       * render above it at z-10 — and the size is in `vw` because the mark is
+       * meant to span the screen.
+       */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 bottom-0 flex select-none justify-center overflow-hidden"
+      >
+        <span
+          style={{ fontSize: "clamp(72px, 25vw, 560px)" }}
+          className="translate-y-[32%] font-bold lowercase leading-none tracking-[-0.03em] text-[var(--home-text)] opacity-[0.075]"
+        >
+          orqestra
+        </span>
+      </div>
+
+      <header className="relative z-10 border-b border-[var(--home-border)] bg-[color-mix(in_oklab,var(--home-bg)_82%,transparent)] backdrop-blur-md">
+        <Container className="flex h-16 items-center justify-between">
+          <Link href="/" className="flex items-center gap-2.5 no-underline">
+            <OrqestraMark animated className="h-7 w-7 text-[var(--home-text)]" />
+            <span className="text-[22px] leading-none font-bold tracking-tight">orqestra</span>
+          </Link>
+          <ArrowLink href="/">Back to the landing page</ArrowLink>
+        </Container>
+      </header>
+
+      <main className="relative z-10 flex min-h-[calc(100dvh-64px)] flex-col items-center justify-center px-6 py-16">
+        <LoginForm social={social} />
+      </main>
+    </div>
   );
 }

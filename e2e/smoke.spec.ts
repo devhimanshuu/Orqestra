@@ -20,6 +20,12 @@ test.describe("Phase 0 smoke", () => {
     await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
   });
 
+  test("login page offers GitHub and Google sign-in", async ({ page }) => {
+    await page.goto("/login");
+    await expect(page.getByRole("button", { name: "GitHub" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Google" })).toBeVisible();
+  });
+
   test("health endpoint returns a structured report", async ({ request }) => {
     const response = await request.get("/api/health");
     // 200 when every dependency is healthy, 503 when degraded — both are valid.
