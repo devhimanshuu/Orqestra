@@ -136,6 +136,9 @@ export async function executeRun(
 
   const controller = new AbortController();
   const metadata: RunMetadata = {
+    // Start from the pins the run was created with — origin and evaluation
+    // batch provenance — so completing the run never erases where it came from.
+    ...(claimed.metadata ?? {}),
     engineVersion: RUNTIME_ENGINE_VERSION,
     harnessContentHash: harnessVersion.contentHash,
     harnessVersion: harnessVersion.version,

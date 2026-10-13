@@ -35,10 +35,26 @@ const orchestratorLogger = logger.child({ module: "evaluation.orchestrator" });
 /** Attempts per case, including the first. Deterministic failures use one. */
 export const MAX_CASE_ATTEMPTS = 2;
 
+/**
+ * Hard ceiling on attempts, whatever a caller asks for. A caller may lower the
+ * retry count (a cheap evaluation, an experiment with its own policy) but never
+ * raise it past this — retry storms are a platform-level constraint, not a
+ * per-request preference.
+ */
+export const MAX_CASE_ATTEMPTS_CEILING = 5;
+
 export interface RunBatchOptions {
   transport: "queue" | "inline" | "unknown";
   /** Restrict this pass to one case (explicit "retry this case" action). */
   onlyCaseKey?: string;
+}
+
+export interface RunCaseOptions {
+  /**
+   * Attempts per case, including the first. Clamped to
+   * `[1, MAX_CASE_ATTEMPTS_CEILING]`. Defaults to `MAX_CASE_ATTEMPTS`.
+   */
+  maxAttempts?: number;
 }
 
 async function isCancellationRequested(batchId: string): Promise<boolean> {
@@ -53,7 +69,12 @@ async function isCancellationRequested(batchId: string): Promise<boolean> {
 export async function runEvaluationCaseJob(
   batchId: string,
   caseKey: string,
+  options: RunCaseOptions = {},
 ): Promise<{ status: "completed" | "failed" | "cancelled" | "skipped" }> {
+  const maxAttempts = Math.min(
+    Math.max(1, options.maxAttempts ?? MAX_CASE_ATTEMPTS),
+    MAX_CASE_ATTEMPTS_CEILING,
+  );
   const batch = await evaluationRepository.findById(batchId);
   if (batch === null) {
     return { status: "skipped" };
@@ -64,7 +85,7 @@ export async function runEvaluationCaseJob(
     return { status: "skipped" };
   }
 
-  for (let attempt = 0; attempt < MAX_CASE_ATTEMPTS; attempt += 1) {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const claimed = await evaluationRepository.claimCase(batchId, caseKey);
     if (claimed === null) {
       // Already claimed by another worker, or already terminal.
@@ -128,7 +149,7 @@ export async function runEvaluationCaseJob(
       return { status: "cancelled" };
     }
 
-    const canRetry = result.error.retryable && attempt < MAX_CASE_ATTEMPTS - 1;
+    const canRetry = result.error.retryable && attempt < maxAttempts - 1;
     if (canRetry) {
       orchestratorLogger.warn("retrying evaluation case after a transient failure", {
         batchId,
