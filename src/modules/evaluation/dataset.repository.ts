@@ -229,6 +229,15 @@ export const datasetRepository = {
     return getPrisma().evaluationBatch.count({ where: { datasetId } });
   },
 
+  /**
+   * Experiments pin a dataset *version*, and one dataset version can be pinned
+   * by several experiments — counting experiments (not versions) is what the
+   * delete guard needs.
+   */
+  async countExperiments(datasetId: string): Promise<number> {
+    return getPrisma().experiment.count({ where: { datasetId } });
+  },
+
   // --- cases ----------------------------------------------------------------
 
   async listCases(datasetId: string): Promise<DatasetCase[]> {

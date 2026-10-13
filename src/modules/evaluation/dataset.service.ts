@@ -164,9 +164,15 @@ export async function updateDataset(
 
 export async function deleteDataset(user: AuthUser, datasetId: string): Promise<void> {
   await assertDatasetAccess(user.id, datasetId);
-  const batchCount = await datasetRepository.countBatches(datasetId);
-  if (batchCount > 0) {
-    throw new DatasetInUseError(datasetId, batchCount);
+  const [batchCount, experimentCount] = await Promise.all([
+    datasetRepository.countBatches(datasetId),
+    datasetRepository.countExperiments(datasetId),
+  ]);
+  // Experiments (Phase 4) pin a dataset version exactly like batches do, so the
+  // same guard applies: their results would lose their meaning if the cases
+  // disappeared. Covered together so one message explains both blockers.
+  if (batchCount > 0 || experimentCount > 0) {
+    throw new DatasetInUseError(datasetId, batchCount, experimentCount);
   }
   await datasetRepository.delete(datasetId);
   serviceLogger.info("dataset deleted", { datasetId, userId: user.id });

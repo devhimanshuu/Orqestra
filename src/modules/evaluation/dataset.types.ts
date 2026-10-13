@@ -82,9 +82,9 @@ export class DatasetConflictError extends Error {
 }
 
 export class DatasetInUseError extends Error {
-  constructor(datasetId: string, batchCount: number) {
+  constructor(datasetId: string, batchCount: number, experimentCount = 0) {
     super(
-      `This dataset has ${batchCount} evaluation batch${batchCount === 1 ? "" : "es"} pinned to it. Delete those first, or keep the dataset — deleting it would erase the meaning of their results.`,
+      `This dataset has ${batchCount} evaluation batch${batchCount === 1 ? "" : "es"} and ${experimentCount} experiment${experimentCount === 1 ? "" : "s"} pinned to it. Delete those first, or keep the dataset — deleting it would erase the meaning of their results.`,
     );
     this.name = "DatasetInUseError";
   }

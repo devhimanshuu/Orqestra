@@ -27,6 +27,15 @@ import {
   HarnessNotFoundError,
   HarnessValidationError,
 } from "@/modules/harness/harness.types";
+import {
+  ExperimentCandidateNotFoundError,
+  ExperimentComparisonError,
+  ExperimentConflictError,
+  ExperimentNotFoundError,
+  ExperimentPromotionError,
+  ExperimentSelectionError,
+  ExperimentValidationError,
+} from "@/modules/experiments/experiment.types";
 import { logger } from "@/lib/logging/logger";
 import { jsonError } from "./api-response";
 
@@ -75,9 +84,17 @@ export function toErrorResponse(error: unknown): Response {
     error instanceof AgentNotFoundError ||
     error instanceof DatasetNotFoundError ||
     error instanceof EvaluatorConfigNotFoundError ||
-    error instanceof EvaluationBatchNotFoundError
+    error instanceof EvaluationBatchNotFoundError ||
+    error instanceof ExperimentNotFoundError ||
+    error instanceof ExperimentCandidateNotFoundError
   ) {
     return jsonError(404, "NOT_FOUND", error.message);
+  }
+
+  // Experiment configuration problems carry their own issues so the wizard can
+  // point at the offending field instead of showing one sentence.
+  if (error instanceof ExperimentValidationError) {
+    return jsonError(400, "EXPERIMENT_INVALID", error.message, error.issues);
   }
 
   // Evaluation configuration problems are 400s when they describe the request
@@ -97,7 +114,13 @@ export function toErrorResponse(error: unknown): Response {
     error instanceof HarnessConflictError ||
     error instanceof DatasetConflictError ||
     error instanceof EvaluatorConflictError ||
-    error instanceof EvaluationBatchConflictError
+    error instanceof EvaluationBatchConflictError ||
+    error instanceof ExperimentConflictError ||
+    // Selecting or promoting is a state conflict (wrong stage, unselected
+    // candidate, unchanged harness), never a validation problem.
+    error instanceof ExperimentSelectionError ||
+    error instanceof ExperimentPromotionError ||
+    error instanceof ExperimentComparisonError
   ) {
     return jsonError(409, "CONFLICT", error.message);
   }

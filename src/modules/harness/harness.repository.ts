@@ -294,7 +294,14 @@ export const harnessRepository = {
     return { harness: toHarness(row), harnessVersion: toHarnessVersion(versionRow) };
   },
 
-  /** Publishes version N and advances the harness pointer + counts atomically. */
+  /**
+   * Publishes version N and refreshes the denormalised counts atomically.
+   *
+   * `currentVersion` is deliberately untouched: publishing makes a version
+   * *available*, it does not change how the harness behaves. The active
+   * pointer only moves through evidence-backed promotion (an experiment
+   * candidate clearing its gates) or an explicit update.
+   */
   async createNextVersion(input: CreateVersionInput): Promise<HarnessVersion> {
     const prisma = getPrisma();
     const [versionRow] = await prisma.$transaction([
@@ -314,7 +321,6 @@ export const harnessRepository = {
       prisma.harness.update({
         where: { id: input.harnessId },
         data: {
-          currentVersion: input.version,
           status: "VALID",
           nodeCount: input.nodeCount,
           edgeCount: input.edgeCount,

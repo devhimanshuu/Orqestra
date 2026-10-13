@@ -443,6 +443,21 @@ export const evaluationRepository = {
     return row ? toBatch(row) : null;
   },
 
+  /**
+   * Removes a batch that was created but never executed.
+   *
+   * Only the experiment launcher uses this, and only to clean up after a sealed
+   * launch plan failed to commit: a batch with results is never deleted (its
+   * cases cascade, but nothing else may reference it), and an executed batch is
+   * evidence — the caller checks for that before calling.
+   */
+  async deleteUnstartedBatch(batchId: string): Promise<boolean> {
+    const deleted = await getPrisma().evaluationBatch.deleteMany({
+      where: { id: batchId, status: "PENDING", completedCount: 0, failedCount: 0 },
+    });
+    return deleted.count > 0;
+  },
+
   /** Batch + its project-scoped labels (agent/harness/dataset). */
   async findDetail(batchId: string): Promise<{
     batch: EvaluationBatchRecord;
@@ -675,6 +690,44 @@ export const evaluationRepository = {
       where: { batchId, caseKey, status: { in: ["FAILED", "CANCELLED"] } },
       data: { status: "PENDING", error: Prisma.JsonNull, completedAt: null },
     });
+  },
+
+  /**
+   * Returns an *interrupted* case (RUNNING with nothing driving it) to PENDING.
+   *
+   * Only the experiment orchestrator calls this, and only after the case's stale
+   * window has elapsed: a RUNNING row normally means a case is genuinely in
+   * flight, so resetting it is a recovery decision, never a retry shortcut. The
+   * conditional `status: "RUNNING"` guard keeps it safe against two recoverers
+   * racing — exactly one update wins.
+   */
+  async resetInterruptedCase(batchId: string, caseKey: string): Promise<boolean> {
+    const reset = await getPrisma().evaluationCaseResult.updateMany({
+      where: { batchId, caseKey, status: "RUNNING" },
+      data: { status: "PENDING", error: Prisma.JsonNull, completedAt: null, startedAt: null },
+    });
+    return reset.count > 0;
+  },
+
+  /**
+   * Marks every not-yet-started case of the given batches as cancelled.
+   *
+   * Used when an experiment's cancellation is observed between executions: the
+   * cases that never ran are recorded as cancelled (with a reason), so a cancelled
+   * experiment settles with no phantom PENDING rows and no result is invented.
+   */
+  async cancelPendingCases(
+    batchIds: readonly string[],
+    error: Record<string, unknown>,
+  ): Promise<number> {
+    if (batchIds.length === 0) {
+      return 0;
+    }
+    const cancelled = await getPrisma().evaluationCaseResult.updateMany({
+      where: { batchId: { in: [...batchIds] }, status: "PENDING" },
+      data: { status: "CANCELLED", completedAt: new Date(), error: asJson(error) },
+    });
+    return cancelled.count;
   },
 
   async listCases(
