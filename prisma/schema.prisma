@@ -121,6 +121,7 @@ model Project {
   datasets          Dataset[]
   evaluators        Evaluator[]
   evaluationBatches EvaluationBatch[]
+  experiments       Experiment[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
@@ -145,6 +146,7 @@ model Agent {
   harnesses      Harness[]
   runs           Run[]
   evaluationBatches EvaluationBatch[]
+  experiments    Experiment[]
 
   @@unique([projectId, slug])
   @@index([projectId])
@@ -201,6 +203,7 @@ model Harness {
   draft          HarnessDraft?
   runs           Run[]
   evaluationBatches EvaluationBatch[]
+  experimentCandidates ExperimentCandidate[]
 
   @@unique([projectId, slug])
   @@index([projectId])
@@ -240,6 +243,7 @@ model HarnessVersion {
   harness      Harness  @relation(fields: [harnessId], references: [id], onDelete: Cascade)
   runs         Run[]
   evaluations  EvaluationBatch[]
+  experimentCandidates ExperimentCandidate[]
 
   @@unique([harnessId, version])
   @@index([harnessId, contentHash])
@@ -461,6 +465,7 @@ model Dataset {
   cases          DatasetCase[]
   versions       DatasetVersion[]
   batches        EvaluationBatch[]
+  experiments    Experiment[]
 
   @@unique([projectId, slug])
   @@index([projectId])
@@ -503,6 +508,7 @@ model DatasetVersion {
   createdAt   DateTime          @default(now())
   dataset     Dataset           @relation(fields: [datasetId], references: [id], onDelete: Cascade)
   batches     EvaluationBatch[] @relation("BatchDatasetVersion")
+  experiments Experiment[]      @relation("ExperimentDatasetVersion")
 
   @@unique([datasetId, version])
   @@index([datasetId, contentHash])
@@ -597,6 +603,7 @@ model EvaluationBatch {
   datasetVersion    DatasetVersion        @relation("BatchDatasetVersion", fields: [datasetVersionId], references: [id], onDelete: Restrict)
   cases             EvaluationCaseResult[]
   results           EvaluationResult[]
+  experimentReplicates ExperimentCandidateReplicate[]
 
   @@index([projectId, createdAt])
   @@index([harnessVersionId])
@@ -669,4 +676,197 @@ model EvaluationResult {
   @@index([runId])
   @@index([batchId])
   @@index([caseResultId])
+}
+
+// ==============================================================================
+// Phase 4 — Harness Experiments & A/B Testing
+//
+//   Experiment          — a sealed comparison of harness versions over one dataset
+//   ExperimentCandidate — one immutable harness version (baseline or candidate),
+//                         executed through exactly one sealed EvaluationBatch
+//   ExperimentRun       — the assignment of one dataset case to one candidate
+//
+// Sealing works exactly as it does for an evaluation batch: at launch the
+// experiment snapshots the dataset version and its cases, every evaluator
+// revision, the objective, the constraints and the execution settings. Editing a
+// dataset, an evaluator or a harness afterwards cannot change what a stored
+// experiment means.
+//
+// Two deliberate restrictions:
+//  - ExperimentCandidate pins `harnessVersionId` (never "latest") *and* the
+//    EvaluationBatch that executes it, so a candidate cannot drift to a newer
+//    harness version while the experiment runs. Execution itself is the Phase 3
+//    engine — the experiment layer schedules, it never re-implements a runtime.
+//  - ExperimentRun carries no mutable status. Execution status, the run id and
+//    the evaluator verdicts are read through the linked case row of the
+//    candidate's batch (one writer, no duplicated state); the assignment row
+//    owns only what this layer owns — which case, which candidate, and the order
+//    in which they were scheduled.
+// ==============================================================================
+
+enum ExperimentStatus {
+  DRAFT
+  QUEUED
+  RUNNING
+  PAUSED
+  COMPLETED
+  PARTIALLY_COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ExperimentCandidateRole {
+  BASELINE
+  CANDIDATE
+}
+
+enum ExperimentSelectionKind {
+  RECOMMENDED
+  SELECTED
+}
+
+model Experiment {
+  id        String           @id @default(cuid())
+  projectId String
+  agentId   String
+  name      String
+  description String?
+  /** The hypothesis under test, e.g. "a critic loop raises correctness by 10%". */
+  hypothesis String?
+  status    ExperimentStatus @default(DRAFT)
+
+  // --- sealed references (written once, at launch) ---------------------------
+  datasetId         String
+  datasetVersionId  String
+  /** DatasetCase-shaped snapshot of the cases this experiment executes. */
+  datasetSnapshot   Json
+  /** Snapshot: [{ key, evaluatorId, version, kind, name, weight, config, usesLlm }]. */
+  evaluatorConfig   Json
+  scoringPolicy     ScoringPolicy @default(REQUIRE_ALL)
+  passThreshold     Float?
+  /** Primary metric, secondary metrics and their optimization directions. */
+  objective         Json
+  /** Hard constraints a winner must respect (cost, latency, pass rate, budget). */
+  constraints       Json
+  /** Concurrency, ordering, replicates, timeout, retry policy, budget. */
+  execution         Json
+  /**
+   * Complete immutable configuration snapshot, written at launch. Null while the
+   * experiment is still a draft — a draft has intentions, not sealed evidence.
+   */
+  configSnapshot    Json?
+
+  caseCount         Int @default(0)
+  /** Planned executions: dataset cases × candidates × replicates. */
+  plannedRunCount   Int @default(0)
+  /** Aggregate metrics, recomputed whenever the experiment settles. */
+  metrics           Json?
+
+  // --- candidate selection and promotion (audited, never automatic) ----------
+  selectedCandidateId String?
+  selectionKind       ExperimentSelectionKind?
+  selectionNotes      String?
+  selectedBy          String?
+  selectedAt          DateTime?
+  promotedCandidateId String?
+  promotionNotes      String?
+  promotedBy          String?
+  promotedAt          DateTime?
+
+  cancelRequestedAt DateTime?
+  pausedAt          DateTime?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdBy         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  project        Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  agent          Agent                 @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  dataset        Dataset               @relation(fields: [datasetId], references: [id], onDelete: Restrict)
+  datasetVersion DatasetVersion        @relation("ExperimentDatasetVersion", fields: [datasetVersionId], references: [id], onDelete: Restrict)
+  candidates     ExperimentCandidate[]
+  runs           ExperimentRun[]
+
+  @@index([projectId, createdAt])
+  @@index([agentId, createdAt])
+  @@index([status])
+  @@index([datasetVersionId])
+}
+
+model ExperimentCandidate {
+  id           String                  @id @default(cuid())
+  experimentId String
+  /** Human label, unique within the experiment ("Baseline", "critic-loop"). */
+  label        String
+  role         ExperimentCandidateRole @default(CANDIDATE)
+  /** What this candidate is expected to improve, when the author stated one. */
+  hypothesis   String?
+  /** Candidate order inside one interleaving round (lower runs first). */
+  orderIndex   Int
+
+  // --- immutable harness pin -------------------------------------------------
+  harnessId        String
+  harnessVersionId String
+  harnessVersion   Int
+  contentHash      String
+  /** Snapshot: harness name, version, content hash, node/edge counts, entry node. */
+  harnessSnapshot  Json
+
+  createdAt DateTime @default(now())
+
+  experiment        Experiment                       @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+  harness           Harness                          @relation(fields: [harnessId], references: [id], onDelete: Restrict)
+  harnessVersionRef HarnessVersion                   @relation(fields: [harnessVersionId], references: [id], onDelete: Restrict)
+  replicates        ExperimentCandidateReplicate[]
+  runs              ExperimentRun[]
+
+  @@unique([experimentId, label])
+  @@index([experimentId, orderIndex])
+  @@index([harnessVersionId])
+}
+
+/**
+ * One repeated trial of a candidate: a sealed EvaluationBatch per replicate, so
+ * a nondeterministic agent can be sampled more than once without merging trials
+ * into a single number. With `replicates = 1` (the default) a candidate has
+ * exactly one row here, which keeps the common path simple.
+ */
+model ExperimentCandidateReplicate {
+  id                String @id @default(cuid())
+  candidateId       String
+  /** 1-based replicate index; replicate 1 is the primary trial. */
+  replicate         Int
+  evaluationBatchId String
+  createdAt         DateTime @default(now())
+
+  candidate ExperimentCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  batch     EvaluationBatch     @relation(fields: [evaluationBatchId], references: [id], onDelete: Restrict)
+
+  @@unique([candidateId, replicate])
+  @@index([evaluationBatchId])
+}
+
+model ExperimentRun {
+  id               String @id @default(cuid())
+  experimentId     String
+  candidateId      String
+  /** Denormalised from the experiment: the dataset version every case is pinned to. */
+  datasetVersionId String
+  /** Stable dataset case identity — the key every comparison aligns on. */
+  caseKey          String
+  /** Position of the case in the dataset snapshot (0-based). */
+  index            Int
+  /** Global scheduling position across candidates (interleaved, or randomized). */
+  orderIndex       Int
+  /** 1-based replicate this assignment belongs to (1 when replicates = 1). */
+  replicate        Int      @default(1)
+  createdAt        DateTime @default(now())
+
+  experiment Experiment          @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+  candidate  ExperimentCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@unique([experimentId, candidateId, replicate, caseKey])
+  @@index([experimentId, orderIndex])
+  @@index([candidateId])
 }
