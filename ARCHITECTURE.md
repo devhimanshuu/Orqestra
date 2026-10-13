@@ -214,15 +214,30 @@ EvaluationBatch    sealed experiment: harness version × dataset version × eval
   projection plus a validated config — never a database handle — and return a score
   with an explanation and structured evidence.
 
-### Experiments (concepts now, tables later)
+### Experiments (Phase 4: A/B testing with evidence)
 
 - [`experiment.types.ts`](src/modules/experiments/experiment.types.ts) —
-  `Experiment` with **version-pinned** `ExperimentVariant`s and `ExperimentRun`.
+  `Experiment`, `ExperimentCandidate` (baseline **and** challengers),
+  `ExperimentRun` (one scheduled case execution), replicate → sealed
+  `EvaluationBatch` links.
 
-Variants are pinned to `harnessVersionId` (never "latest") so an A/B comparison
-cannot silently drift when someone edits the harness mid-experiment. The
-evaluation engine already provides the ingredients (pinned versions, metrics,
-regression detection); the experiment layer will schedule variants over them.
+Every candidate is pinned to a `harnessVersionId` (never "latest") at draft
+creation, and sealing writes an immutable `configSnapshot` (dataset version,
+ evaluator revisions, objective, constraints, execution settings, engine and
+pricing versions). Execution reuses the ordinary runtime and evaluation engine
+— the orchestrator interleaves candidates over the same dataset version,
+observes durable pause/cancel flags between cases, honours run budgets (settling
+`PARTIALLY_COMPLETED`), and claims work idempotently so a redelivered job never
+runs a case twice.
+
+Ranking follows the configured objective and constraints (violations can never
+win); comparisons report absolute and percentage movements with `null` — never
+`∞` — against a zero baseline, paired evidence (confidence intervals, sign
+tests) only when the sample supports it, regressions as verdicts and changed
+execution paths as leads. Promotion is a separate, confirmed act: gates require
+a settled experiment and a pass-rate threshold, and only promotion advances a
+harness's `currentVersion` — publishing merely makes a version available, so a
+winning `HarnessVersion` is never rewritten.
 
 ### Memory (reserved)
 

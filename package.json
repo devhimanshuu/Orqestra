@@ -24,6 +24,7 @@
     "worker": "tsx src/modules/runtime/worker.ts",
     "verify:phase2": "tsx scripts/verify-phase2.ts",
     "verify:phase3": "tsx scripts/verify-phase3.ts",
+    "verify:phase4": "tsx scripts/verify-phase4.ts",
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },
   "dependencies": {

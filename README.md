@@ -6,13 +6,16 @@ Orqestra is not another agent builder. The LLM is one component; the _harness_ �
 the way an agent reasons, uses tools, manages context and memory, loops, recovers
 from failures, and terminates — is the product.
 
-> **Current status: Phase 3 — Run Lab, Observability & Evaluation Engine.**
+> **Current status: Phase 4 — Harness Experiments & A/B Testing.**
 > Projects, agents, harnesses, the visual builder, the agent runtime (compiler →
 > execution plan → state machine → trace → SSE), the run lab (run history, run
-> detail, live timeline), and the evaluation engine (datasets, evaluators,
-> sealed evaluation batches, metrics, regression comparison, sanitized exports)
-> are in place. Experiments and harness evolution land in later phases (see
-> [Roadmap](#roadmap)).
+> detail, live timeline), the evaluation engine (datasets, evaluators, sealed
+> evaluation batches, metrics, regression comparison, sanitized exports), and
+> the experimentation platform (creation wizard, immutable baseline/candidate
+> pins, execution through the same runtime, live progress, objective-driven
+> ranking, statistical evidence, comparison views, gated promotion of the
+> winning version) are in place. Harness evolution beyond controlled
+> experiments lands in later phases (see [Roadmap](#roadmap)).
 
 ---
 
@@ -89,7 +92,7 @@ src/
 │   ├── evaluation/       #   datasets, evaluators, batches, metrics, comparison
 │   ├── tools/            #   tool interface + registry + example tool
 │   ├── llm/              #   gateway + Gemini / Ollama adapters
-│   ├── experiments/      #   concepts only (later phase)
+│   ├── experiments/      #   wizard, configuration, ranking, comparison, promotion
 │   └── memory/           #   reserved (later phase)
 ├── lib/                  # infrastructure: db, redis, auth, logging, health, http
 ├── config/               # environment schema + validation
@@ -400,8 +403,7 @@ extension points for later phases. Key entry points:
 | **0** | **Foundation & architecture**    | delivered                                                                                                                                                                                                                                                     |
 | **1** | **Visual harness builder**       | delivered — projects, agents, harnesses, React Flow builder, node inspector, graph validation, draft autosave, immutable versions, import/export                                                                                                              |
 | **2** | **Agent runtime**                | delivered — compiler → execution plan, state machine, node executors, expression resolver, loop/limits/retry policies, tool permissions, LLM gateway (Gemini/Ollama/mock), queue + worker, runs API, SSE updates, run history & run detail UI                                  |
-| **3** | **Evaluation engine & run lab**  | **this repository state** — versioned datasets, configured evaluators (deterministic + LLM judge), sealed evaluation batches with pinned snapshots, per-case verdicts with evidence, persisted metrics, regression comparison, sanitized exports, run-level evaluation        |
-| 4     | **Experiments**                  | Version-pinned `Experiment`/`ExperimentVariant` A/B runs (concepts already fixed in `src/modules/experiments`)                                                                                                                                                     |
+| **3** | **Evaluation engine & run lab**  | delivered — versioned datasets, configured evaluators (deterministic + LLM judge), sealed evaluation batches with pinned snapshots, per-case verdicts with evidence, persisted metrics, regression comparison, sanitized exports, run-level evaluation                                                        || 4     | **Experiments**                  | delivered — multi-step creation wizard, immutable baseline/candidate pins, execution through the existing runtime with pause/resume/cancel and budgets, live progress, objective-constrained ranking, statistical evidence with qualified claims, comparison view with regression/path-lead analysis, gated promotion of the winning version to the harness's current version                                                                                          |
 | 5     | Harness versioning & A/B testing | immutable versions, content hashes, run→version pinning                                                                                                                                                                                                       |
 | 6     | Experiment engine                | `Experiment`/`ExperimentRun` concepts with version-pinned variants                                                                                                                                                                                            |
 | 7     | Loop engineering                 | `loop` node type, events, iteration state                                                                                                                                                                                                                     |
