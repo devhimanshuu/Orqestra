@@ -6,6 +6,7 @@ const SECTIONS = [
   { href: "/dashboard/datasets", label: "Datasets" },
   { href: "/dashboard/evaluators", label: "Evaluators" },
   { href: "/dashboard/evaluations", label: "Evaluations" },
+  { href: "/dashboard/experiments", label: "Experiments" },
 ] as const;
 
 /**
