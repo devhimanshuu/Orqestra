@@ -436,7 +436,8 @@ test.describe("landing page", () => {
     await page.goto("/");
 
     // The sweep is drawn as it always was, and the pointer reaches nothing.
-    // (The closing CTA draws the same artwork, so the hero's is named.)
+    // (The closing CTA draws the lens this hero used to wear, so the hero's
+    // line artwork is named rather than found.)
     const light = page.locator('[data-sweep="hero"] .landing-sweep-focus');
     const sweep = () =>
       light.evaluate((element) => ({
@@ -449,11 +450,13 @@ test.describe("landing page", () => {
     await page.waitForTimeout(600);
     expect(await sweep()).toEqual(drawn);
 
-    // The light that flows along the arcs is motion too, and it is withdrawn
-    // whole: the beams underneath stay, exactly as drawn.
-    const flow = page.locator(".landing-sweep-flow").first();
+    // The light that flows along the lines is motion too, and it is withdrawn
+    // whole: the structure underneath stays, exactly as drawn.
+    const flow = page.locator('[data-sweep="hero"] .landing-sweep-flow');
     expect(await flow.evaluate((element) => getComputedStyle(element).display)).toBe("none");
-    expect(await page.locator(".landing-sweep-arcs path").count()).toBeGreaterThan(0);
+    expect(
+      await page.locator('[data-sweep="hero"] .landing-sweep-arcs path').count(),
+    ).toBeGreaterThan(0);
 
     const state = await page.evaluate(() => {
       const svg = document.querySelector('header svg[viewBox="0 0 32 32"]');
@@ -636,8 +639,10 @@ test.describe("landing page", () => {
     await page.goto("/");
 
     // The travelling light is drawn on a layer of its own: the beams again, from
-    // a gradient that moves. The drawing underneath is never redrawn.
-    const flow = page.locator(".landing-sweep-flow").first();
+    // a gradient that moves. The drawing underneath is never redrawn. The closing
+    // CTA draws the same kind of layer over different beams, so the hero's is
+    // named rather than found.
+    const flow = page.locator('[data-sweep="hero"] .landing-sweep-flow');
     await expect(flow).toBeVisible();
 
     const readOffset = () =>
@@ -718,7 +723,9 @@ test.describe("landing page", () => {
             path.getAttribute("transform"),
           ],
         ),
-        flow: [...document.querySelectorAll(".landing-sweep-flow-arcs path")].map((path) => [
+        flow: [
+          ...document.querySelectorAll('[data-sweep="hero"] .landing-sweep-flow-arcs path'),
+        ].map((path) => [
           path.getAttribute("d"),
           path.getAttribute("stroke"),
           path.getAttribute("stroke-width"),

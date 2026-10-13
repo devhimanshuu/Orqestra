@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Aurora } from "./primitives";
+import { LineArt } from "./line-art";
 import {
   ARCS_TRAIL,
   SWEEP_REST,
@@ -14,8 +14,9 @@ import {
 /**
  * The hero's sweep, answering the pointer.
  *
- * The light leans toward the pointer and firms up as the pointer approaches its
- * focal point; stop moving and it eases back to the resting shape, exactly as
+ * The artwork it hosts is the full-width line structure (see `line-art.tsx`);
+ * the light at its nose leans toward the pointer and firms up as the pointer
+ * approaches it, stop moving and it eases back to the resting shape, exactly as
  * drawn. The response is written as a `transform` and an `opacity` on the two
  * groups of the artwork, so every frame of the interaction is a composited
  * change rather than a re-render.
@@ -190,7 +191,7 @@ export function InteractiveSweep() {
       data-sweep="hero"
       className="pointer-events-none absolute inset-0 overflow-hidden"
     >
-      <Aurora />
+      <LineArt />
     </div>
   );
 }

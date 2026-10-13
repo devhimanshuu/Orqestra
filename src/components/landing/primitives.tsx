@@ -14,13 +14,16 @@ import { cn } from "@/lib/utils";
 /*
  * Iridescent sweep.
  *
- * The reference's hero light is a *lens*: two arcs that converge to a bright
+ * The closing CTA's light is a *lens*: two arcs that converge to a bright
  * focal point where they meet the right edge, with chromatic fringing along
  * their edges and a diffuse glow between them. It does not swing or rotate —
  * only the star field over it moves — so this is drawn once as SVG (blurred
  * strokes, screen-blended) and the wrapper gets at most a barely perceptible
  * breathe. Animating the bands themselves made them scissor across the hero,
  * which is what made it look wrong.
+ *
+ * The hero itself now carries the full-width line structure (`line-art.tsx`)
+ * instead of this lens; the lens stays here for the closing call to action.
  *
  * Coordinates are in a 1440×900 user space, scaled with `slice` so the sweep
  * always reaches the right edge on wide screens.

@@ -16,13 +16,13 @@ type Mode = "sign-in" | "sign-up";
  * app defaults without forking the components.
  */
 const FIELD_CLASSES =
-  "h-11 w-full rounded-none border border-[var(--home-border-strong)] bg-[var(--home-bg-elevated)] px-3.5 text-[14px] text-[var(--home-text)] placeholder:text-[var(--home-text-dim)] transition-colors outline-none focus-visible:border-[var(--home-violet)] focus-visible:ring-3 focus-visible:ring-[var(--home-violet)]/25";
+  "h-10 w-full rounded-none border border-[var(--home-border-strong)] bg-[var(--home-bg-elevated)] px-3.5 text-[14px] text-[var(--home-text)] placeholder:text-[var(--home-text-dim)] transition-colors outline-none focus-visible:border-[var(--home-violet)] focus-visible:ring-3 focus-visible:ring-[var(--home-violet)]/25";
 
 const LABEL_CLASSES =
   "text-[10.5px] tracking-[0.14em] text-[var(--home-text-faint)] uppercase";
 
 const SUBMIT_CLASSES =
-  "h-11 w-full bg-white px-6 text-[14px] font-medium text-black transition-opacity hover:opacity-85 disabled:pointer-events-none disabled:opacity-50";
+  "h-10 w-full bg-white px-6 text-[14px] font-medium text-black transition-opacity hover:opacity-85 disabled:pointer-events-none disabled:opacity-50";
 
 const TOGGLE_CLASSES =
   "group inline-flex items-center gap-1.5 self-start text-[13.5px] text-[var(--home-text-secondary)] transition-colors hover:text-[var(--home-text)]";
@@ -118,25 +118,29 @@ export function LoginForm({
     <Frame
       tone="elevated"
       padded={false}
-      className="w-full max-w-[440px] border-[var(--home-border-strong)] bg-[color-mix(in_oklab,var(--home-bg-elevated)_82%,transparent)] p-6 backdrop-blur-md md:p-8"
+      className="login-card w-full max-w-[440px] border-[var(--home-border-strong)] bg-[color-mix(in_oklab,var(--home-bg-elevated)_82%,transparent)] p-5 backdrop-blur-md md:p-6"
     >
       <p className="landing-eyebrow"># Harness engineering platform</p>
-      <h1 className="landing-display mt-4 text-[length:clamp(30px,5vw,44px)]">
+      <h1 className="landing-display mt-3 text-[length:clamp(26px,4vw,36px)]">
         {mode === "sign-in" ? "Sign in" : "Create account"}
       </h1>
-      <p className="mt-4 text-[14.5px] leading-relaxed text-[var(--home-text-secondary)]">
+      {/*
+       * The page never scrolls, so on a short or narrow viewport the pitch is
+       * the first thing to go — the form is what must stay fully visible.
+       */}
+      <p className="mt-3 text-[13.5px] leading-snug text-[var(--home-text-secondary)] max-sm:hidden [@media(max-height:760px)]:hidden">
         {mode === "sign-in"
           ? "Use the seeded demo account or your own credentials. Every run, trace and evaluation lives behind this door."
           : "Email and password are stored in PostgreSQL via Better Auth."}
       </p>
 
-      <form onSubmit={(event) => void handleSubmit(event)} className="mt-7 flex flex-col gap-4">
+      <form onSubmit={(event) => void handleSubmit(event)} className="mt-5 flex flex-col gap-2.5">
         <div className="grid grid-cols-2 gap-3">
           <button
             type="button"
             disabled={pending}
             onClick={() => void handleSocial("github")}
-            className="flex h-11 items-center justify-center gap-2 border border-[var(--home-border-strong)] bg-[var(--home-bg-elevated)] text-[14px] text-[var(--home-text)] transition-colors hover:bg-white/[0.06] disabled:pointer-events-none disabled:opacity-50"
+            className="flex h-10 items-center justify-center gap-2 border border-[var(--home-border-strong)] bg-[var(--home-bg-elevated)] text-[14px] text-[var(--home-text)] transition-colors hover:bg-white/[0.06] disabled:pointer-events-none disabled:opacity-50"
           >
             <GitHubIcon />
             GitHub
@@ -145,7 +149,7 @@ export function LoginForm({
             type="button"
             disabled={pending}
             onClick={() => void handleSocial("google")}
-            className="flex h-11 items-center justify-center gap-2 border border-[var(--home-border-strong)] bg-[var(--home-bg-elevated)] text-[14px] text-[var(--home-text)] transition-colors hover:bg-white/[0.06] disabled:pointer-events-none disabled:opacity-50"
+            className="flex h-10 items-center justify-center gap-2 border border-[var(--home-border-strong)] bg-[var(--home-bg-elevated)] text-[14px] text-[var(--home-text)] transition-colors hover:bg-white/[0.06] disabled:pointer-events-none disabled:opacity-50"
           >
             <GoogleIcon />
             Google
@@ -215,7 +219,7 @@ export function LoginForm({
         {error !== null && (
           <p
             role="alert"
-            className="border border-[color-mix(in_oklab,var(--home-magenta)_40%,transparent)] bg-[color-mix(in_oklab,var(--home-magenta)_10%,transparent)] px-3 py-2 text-[13px] text-[var(--home-magenta)]"
+            className="border border-[color-mix(in_oklab,var(--home-magenta)_40%,transparent)] bg-[color-mix(in_oklab,var(--home-magenta)_10%,transparent)] px-3 py-1.5 text-[12.5px] leading-snug text-[var(--home-magenta)]"
           >
             {error}
           </p>
@@ -239,7 +243,7 @@ export function LoginForm({
           </span>
         </button>
 
-        <p className="landing-mono mt-1 border-t border-[var(--home-border)] pt-4 text-[10.5px] tracking-[0.12em] text-[var(--home-text-dim)] uppercase">
+        <p className="landing-mono mt-1 border-t border-[var(--home-border)] pt-3 text-[10.5px] tracking-[0.12em] text-[var(--home-text-dim)] uppercase">
           {mode === "sign-in"
             ? "demo user · created by pnpm db:seed"
             : "passwords are hashed · postgres + better auth"}

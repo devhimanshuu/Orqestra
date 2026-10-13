@@ -215,11 +215,76 @@
   color: transparent;
 }
 
-/* Grain + vignette over the black canvas. */
+/* Grain over the black canvas — a faint film texture, not a vignette. */
 .landing-noise {
   background-image: radial-gradient(rgba(255, 255, 255, 0.045) 0.5px, transparent 0.6px);
   background-size: 3px 3px;
   opacity: 0.55;
+}
+
+/*
+ * Deep-space depth.
+ *
+ * The page's black is not a flat void — it is space, and space has distance.
+ * Three stacked layers give it that: a base gradient that cools toward the
+ * horizon (a hair of violet rising from the bottom, so the frame has a floor
+ * rather than dissolving evenly), two soft nebula glows bleeding brand colour
+ * in from the corners at very low strength, and a vignette that pulls the eye
+ * back toward the centre where the composition lives. None of them animate —
+ * the only motion up here is the starfield's own drift and twinkle.
+ *
+ * Each layer is its own element so the browser can composite them independently
+ * of the starfield canvas and the line artwork above; they never re-raster.
+ */
+
+/* The base: black that deepens toward the top, lifts a whisper of violet low. */
+.landing-space {
+  background-image:
+    radial-gradient(
+      120% 80% at 50% 115%,
+      rgba(92, 74, 214, 0.16) 0%,
+      rgba(58, 46, 140, 0.07) 26%,
+      transparent 58%
+    ),
+    linear-gradient(180deg, #010104 0%, #000006 42%, #000000 100%);
+}
+
+/*
+ * Nebula: two diffuse clouds of brand colour, far off and out of focus. They
+ * are the reason the black reads as depth rather than as an off switch — a
+ * hint of violet in the upper left, a breath of magenta low on the right, both
+ * so faint they never compete with the copy or the nose of the line artwork.
+ */
+.landing-nebula {
+  background-image:
+    radial-gradient(42% 34% at 16% 18%, rgba(122, 96, 255, 0.15) 0%, transparent 70%),
+    radial-gradient(38% 30% at 82% 78%, rgba(255, 96, 170, 0.09) 0%, transparent 72%),
+    radial-gradient(30% 26% at 68% 12%, rgba(70, 180, 240, 0.06) 0%, transparent 74%);
+}
+
+/*
+ * Vignette: the frame closing in. It darkens the corners and edges so the
+ * centre — the headline, the nose of the artwork — sits in the light, and the
+ * whole surface reads as a lit stage in a dark room rather than a lit rectangle.
+ */
+.landing-vignette {
+  background-image: radial-gradient(
+    78% 68% at 50% 46%,
+    transparent 0%,
+    transparent 52%,
+    rgba(0, 0, 0, 0.34) 82%,
+    rgba(0, 0, 0, 0.62) 100%
+  );
+}
+
+/*
+ * A distant star layer, dimmed and softened so it sits *behind* the near field.
+ * The parallax is baked into opacity and blur, not into a transform: the two
+ * canvases already drift at their own rates, and this layer simply recedes.
+ */
+.landing-starfield-far {
+  opacity: 0.5;
+  filter: blur(0.4px);
 }
 
 /*
@@ -238,7 +303,6 @@
 .landing {
   --landing-marquee-height: 52px;
   --hero-step: 8px;
-  --hero-artwork: 520px;
   --hero-display: clamp(38px, 5.6vw, 78px);
 }
 
@@ -246,7 +310,6 @@
 @media (max-height: 980px) {
   .landing {
     --hero-step: 6px;
-    --hero-artwork: 480px;
     --hero-display: clamp(34px, min(5.6vw, 8vh), 72px);
   }
 }
@@ -254,7 +317,6 @@
 @media (max-height: 880px) {
   .landing {
     --hero-step: 5px;
-    --hero-artwork: 400px;
     --hero-display: clamp(32px, min(5.4vw, 7.8vh), 66px);
   }
 }
@@ -262,21 +324,73 @@
 @media (max-height: 800px) {
   .landing {
     --hero-step: 4px;
-    --hero-artwork: 340px;
     --hero-display: clamp(30px, min(5.2vw, 7.4vh), 60px);
   }
 }
 
 /*
- * Iridescent sweep behind the hero and the closing CTA.
+ * The light behind the hero and the closing CTA.
  *
- * The artwork is static SVG (see `landing/primitives.tsx`) — the reference's
- * beam does not move either — so the only motion here is a very slight breathe
- * of the whole layer: 1.2% scale and 6% opacity over half a minute. It is
- * animated on a composited layer, so the blurred strokes never re-render.
+ * The hero's is the full-width line structure (`landing/line-art.tsx`), the
+ * closing CTA's the lens (`landing/primitives.tsx`) — both are static SVG, so
+ * the only motion in the layer itself is a very slight breathe: 1.2% scale and
+ * 6% opacity over half a minute. It is animated on a composited layer, so the
+ * blurred strokes never re-render.
  */
 .landing-sweep {
   mix-blend-mode: screen;
+}
+
+/*
+ * The line artwork's veil.
+ *
+ * The lines run the full width of the hero — that is the composition — but the
+ * copy sits on the left of it, so the layer is held down there to a texture
+ * under the text and rises to full strength under the nose, where the hero is
+ * empty. One ramp on both layers (structure and travelling light), so the
+ * light never outshines the lines it rides.
+ */
+.landing-line-veil {
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.16) 0%,
+    rgba(0, 0, 0, 0.26) 55%,
+    rgba(0, 0, 0, 0.6) 72%,
+    rgba(0, 0, 0, 0.95) 88%,
+    #000 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.16) 0%,
+    rgba(0, 0, 0, 0.26) 55%,
+    rgba(0, 0, 0, 0.6) 72%,
+    rgba(0, 0, 0, 0.95) 88%,
+    #000 100%
+  );
+}
+
+/*
+ * Narrow viewports: the copy runs the whole width there, so there is no empty
+ * right-hand side for the nose to shine in — the ramp flattens into an even
+ * dimmer texture and the structure stays a structure.
+ */
+@media (max-width: 1023px) {
+  .landing-line-veil {
+    -webkit-mask-image: linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.14) 0%,
+      rgba(0, 0, 0, 0.22) 50%,
+      rgba(0, 0, 0, 0.34) 75%,
+      rgba(0, 0, 0, 0.48) 100%
+    );
+    mask-image: linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.14) 0%,
+      rgba(0, 0, 0, 0.22) 50%,
+      rgba(0, 0, 0, 0.34) 75%,
+      rgba(0, 0, 0, 0.48) 100%
+    );
+  }
 }
 
 /*
@@ -326,6 +440,124 @@
   100% {
     opacity: 0.97;
     transform: scale(1.012);
+  }
+}
+
+/*
+ * The entrance: the lines draw themselves in from the tail toward the nose,
+ * spine first and edges after. Each row carries its own delay and dash length
+ * in an inline style (`row.delay`, `row.length` in `line-art.tsx`); this
+ * keyframe only owns the walk from that row's full length back to zero. Under
+ * reduced motion the offset is forced to zero instantly — the lines are
+ * already drawn.
+ */
+@keyframes landing-line-draw {
+  from {
+    stroke-dashoffset: var(--landing-line-dash, 1000);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/*
+ * The nose flare: blooms once as the lines land, then breathes. The bloom is
+ * a gentle scale-up and fade-in; the pulse is a slow 6.5s opacity swell so the
+ * tip never sits perfectly still.
+ */
+@keyframes landing-line-flare {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes landing-line-flare-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.72;
+  }
+}
+
+/*
+ * Twinkle: a single row flares briefly and returns to nothing, on its own
+ * phase. The delay comes from the row index (an inline custom property), so
+ * the shimmer never synchronises into a travelling wave — it stays a scatter
+ * of catches, like stars. Pure opacity, so it is a composited change.
+ */
+.landing-line-twinkle {
+  animation: landing-line-twinkle 5.4s ease-in-out infinite;
+  animation-delay: var(--landing-twinkle-delay, 0s);
+}
+
+@keyframes landing-line-twinkle {
+  0%,
+  72%,
+  100% {
+    opacity: 0;
+  }
+  80% {
+    opacity: 0.5;
+  }
+  88% {
+    opacity: 0.12;
+  }
+}
+
+/*
+ * Scan: one bright front crossing the whole band tail-to-nose, then a long
+ * rest before it sweeps again. The movement is a single composited translate
+ * of a clipped stripe; the opacity gate keeps it invisible between sweeps so
+ * it never sits parked on the canvas.
+ */
+.landing-line-scan {
+  animation: landing-line-scan 16s cubic-bezier(0.7, 0, 0.3, 1) infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes landing-line-scan {
+  0% {
+    opacity: 0;
+    transform: translateX(0);
+  }
+  2% {
+    opacity: 0;
+  }
+  6% {
+    opacity: 0.9;
+  }
+  22% {
+    opacity: 0.9;
+  }
+  26%,
+  100% {
+    opacity: 0;
+    transform: translateX(var(--landing-scan-travel, 1740px));
+  }
+}
+
+/*
+ * Reduced motion: the artwork is seen exactly as drawn. The dash offset is
+ * forced to zero so the lines are already complete, and the flare blooms
+ * instantly (no animation, no scale, full opacity) rather than walking through
+ * its keyframes.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .landing-line-draw {
+    animation: none !important;
+    stroke-dashoffset: 0 !important;
+  }
+  .landing-line-flare {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
   }
 }
 
@@ -483,5 +715,45 @@
   .landing-pulse,
   .landing-blink {
     animation: none !important;
+  }
+}
+
+/*
+ * The sign-in page is exactly one viewport tall and clips its overflow, so it
+ * can never scroll. On a short window that would mean cutting the card off
+ * instead — so the card scales down to fit. The steps cascade by source order:
+ * the shorter the viewport, the smaller the card.
+ */
+.login-card {
+  transform-origin: center;
+}
+
+@media (max-height: 640px) {
+  .login-card {
+    transform: scale(0.95);
+  }
+}
+
+@media (max-height: 600px) {
+  .login-card {
+    transform: scale(0.88);
+  }
+}
+
+@media (max-height: 560px) {
+  .login-card {
+    transform: scale(0.82);
+  }
+}
+
+@media (max-height: 520px) {
+  .login-card {
+    transform: scale(0.75);
+  }
+}
+
+@media (max-height: 480px) {
+  .login-card {
+    transform: scale(0.68);
   }
 }

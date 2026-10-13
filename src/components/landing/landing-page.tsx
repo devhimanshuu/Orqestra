@@ -22,9 +22,9 @@ import { Starfield } from "./starfield";
  * Orqestra's landing page.
  *
  * Design language follows the reference the product is styled after: a black
- * surface with an animated star field and an iridescent sweep, uppercase
- * display type, mono eyebrows and labels, hairline borders, square buttons and
- * one inverted (white) section for rhythm.
+ * surface with an animated star field and a full-width line artwork whose
+ * light travels, uppercase display type, mono eyebrows and labels, hairline
+ * borders, square buttons and one inverted (white) section for rhythm.
  *
  * The content is Orqestra's own vision — harness engineering — and every claim,
  * number and command on the page comes from the code in this repository:
@@ -412,8 +412,28 @@ export function LandingPage() {
        * line between them, and drawing it twice also pushed the band 1px past the
        * fold. `--hero-step` is the rhythm everything inside is spaced by (see
        * `globals.css`), so short viewports compress instead of overflowing.
+       *
+       * The artwork is the line structure in `line-art.tsx`: horizontal lines
+       * spanning the whole width of the section, their ends tapering to a nose
+       * at the right, with light travelling along them toward the tip. The copy
+       * sits over the veiled tail of it, in one column.
        */}
       <section className="relative isolate overflow-hidden pt-16">
+        {/*
+         * Depth stack, back to front: the deep-space base gradient, the nebula
+         * glows bleeding brand colour in from the corners, a distant and
+         * softened starfield, then the near field at full strength. Each is its
+         * own layer so they composite independently and never re-raster against
+         * the line artwork above.
+         */}
+        <div aria-hidden="true" className="landing-space pointer-events-none absolute inset-0" />
+        <div aria-hidden="true" className="landing-nebula pointer-events-none absolute inset-0" />
+        <Starfield
+          className="landing-starfield-far pointer-events-none absolute inset-0 h-full w-full"
+          density={0.00028}
+          speed={0.5}
+          maxRadius={0.9}
+        />
         <Starfield
           className="absolute inset-0 h-full w-full opacity-95"
           density={0.00045}
@@ -421,48 +441,49 @@ export function LandingPage() {
         />
         <InteractiveSweep />
         <div aria-hidden="true" className="landing-noise pointer-events-none absolute inset-0" />
+        <div aria-hidden="true" className="landing-vignette pointer-events-none absolute inset-0" />
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-[var(--home-bg)] to-transparent"
         />
 
         <Container className="relative z-10 flex min-h-[calc(100dvh_-_64px_-_var(--landing-marquee-height))] flex-col justify-between pt-16 pb-[calc(var(--hero-step)*4)] md:pt-[calc(var(--hero-step)*12)]">
-          <div className="grid gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,var(--hero-artwork))] lg:items-start">
-            <Reveal className="flex flex-col items-start">
-              <p className="landing-eyebrow"># Harness engineering platform</p>
-              <h1 className="landing-display mt-[calc(var(--hero-step)*3)] max-w-[15ch] text-[length:var(--hero-display)]">
-                <span className="landing-gradient-text">Harness</span> engineering
-                <br />
-                infrastructure.
-              </h1>
-              <p className="mt-[calc(var(--hero-step)*3.5)] max-w-[560px] text-[15.5px] leading-relaxed text-[var(--home-text-secondary)]">
-                The model provides intelligence. The harness controls behavior. Orqestra turns an
-                agent&apos;s behaviour into a versioned graph you compile, execute, trace and
-                compare — one node at a time.
-              </p>
+          {/*
+           * One column of copy over the line artwork, which runs the full width
+           * of the section behind it — so there is no empty half held open for
+           * the light any more: the light is the width.
+           */}
+          <Reveal className="flex max-w-[720px] flex-col items-start">
+            <p className="landing-eyebrow"># Harness engineering platform</p>
+            <h1 className="landing-display mt-[calc(var(--hero-step)*3)] max-w-[15ch] text-[length:var(--hero-display)]">
+              <span className="landing-gradient-text">Harness</span> engineering
+              <br />
+              infrastructure.
+            </h1>
+            <p className="mt-[calc(var(--hero-step)*3.5)] max-w-[560px] text-[15.5px] leading-relaxed text-[var(--home-text-secondary)]">
+              The model provides intelligence. The harness controls behavior. Orqestra turns an
+              agent&apos;s behaviour into a versioned graph you compile, execute, trace and compare
+              — one node at a time.
+            </p>
 
-              <CopyField
-                className="mt-[calc(var(--hero-step)*4.5)] max-w-[560px]"
-                label="Define the behaviour. Let the runtime execute it."
-                hint="Click to copy the research harness definition"
-                value={HARNESS_SAMPLE_JSON}
-              />
+            <CopyField
+              className="mt-[calc(var(--hero-step)*4.5)] max-w-[560px]"
+              label="Define the behaviour. Let the runtime execute it."
+              hint="Click to copy the research harness definition"
+              value={HARNESS_SAMPLE_JSON}
+            />
 
-              <div className="mt-[calc(var(--hero-step)*4.5)] flex flex-wrap items-center gap-x-8 gap-y-4">
-                <Link
-                  href="/login"
-                  className="bg-white px-6 py-3 text-[14px] font-medium text-black transition-opacity hover:opacity-85"
-                >
-                  Start building
-                </Link>
-                <ArrowLink href="#pipeline">See the pipeline</ArrowLink>
-                <ArrowLink href="/dashboard">Open the dashboard</ArrowLink>
-              </div>
-            </Reveal>
-
-            {/* The right half is deliberately empty: the aurora is the artwork. */}
-            <div aria-hidden="true" className="hidden h-[var(--hero-artwork)] lg:block" />
-          </div>
+            <div className="mt-[calc(var(--hero-step)*4.5)] flex flex-wrap items-center gap-x-8 gap-y-4">
+              <Link
+                href="/login"
+                className="bg-white px-6 py-3 text-[14px] font-medium text-black transition-opacity hover:opacity-85"
+              >
+                Start building
+              </Link>
+              <ArrowLink href="#pipeline">See the pipeline</ArrowLink>
+              <ArrowLink href="/dashboard">Open the dashboard</ArrowLink>
+            </div>
+          </Reveal>
         </Container>
       </section>
 
@@ -1014,6 +1035,14 @@ export function LandingPage() {
 
       {/* Closing CTA -------------------------------------------------------- */}
       <section className="relative isolate overflow-hidden border-t border-[var(--home-border)]">
+        <div aria-hidden="true" className="landing-space pointer-events-none absolute inset-0" />
+        <div aria-hidden="true" className="landing-nebula pointer-events-none absolute inset-0" />
+        <Starfield
+          className="landing-starfield-far pointer-events-none absolute inset-0 h-full w-full"
+          density={0.0002}
+          speed={0.5}
+          maxRadius={0.9}
+        />
         <Starfield
           className="absolute inset-0 h-full w-full opacity-80"
           density={0.00026}
@@ -1021,6 +1050,7 @@ export function LandingPage() {
         />
         <Aurora className="opacity-80" />
         <div aria-hidden="true" className="landing-noise pointer-events-none absolute inset-0" />
+        <div aria-hidden="true" className="landing-vignette pointer-events-none absolute inset-0" />
         <Container className="relative z-10 flex flex-col items-start gap-8 py-24 md:py-32">
           <Reveal className="flex flex-col items-start">
             <p className="landing-eyebrow"># Start here</p>

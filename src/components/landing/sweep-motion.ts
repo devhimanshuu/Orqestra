@@ -2,11 +2,12 @@
  * How the hero's sweep answers the pointer.
  *
  * The light leans toward the pointer, and comes up to full strength as the
- * pointer closes on its focal point — the caustic where the arcs meet the right
- * edge. Nothing here can brighten past the drawn artwork: the *resting* state
- * (`1`) is the hero exactly as designed, and the interaction only ever offsets
- * and dims it. A visitor without scripting, a visitor with reduced motion, and a
- * visitor who simply stands still therefore all see the same hero.
+ * pointer closes on its focal point — the nose of the line artwork, where the
+ * structure resolves. Nothing here can brighten past the drawn artwork: the
+ * *resting* state (`1`) is the hero exactly as designed, and the interaction
+ * only ever offsets and dims it. A visitor without scripting, a visitor with
+ * reduced motion, and a visitor who simply stands still therefore all see the
+ * same hero.
  *
  * Pure maths, kept apart from the DOM so the mapping and the easing can be
  * tested directly.
