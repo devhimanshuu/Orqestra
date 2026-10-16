@@ -122,6 +122,7 @@ model Project {
   evaluators        Evaluator[]
   evaluationBatches EvaluationBatch[]
   experiments       Experiment[]
+  optimizationSessions OptimizationSession[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
@@ -147,6 +148,7 @@ model Agent {
   runs           Run[]
   evaluationBatches EvaluationBatch[]
   experiments    Experiment[]
+  optimizationSessions OptimizationSession[]
 
   @@unique([projectId, slug])
   @@index([projectId])
@@ -195,6 +197,8 @@ model Harness {
   edgeCount      Int             @default(0)
   /** Derived from the current draft/definition: DRAFT until validated. */
   status         HarnessStatus   @default(DRAFT)
+  /** When true, runs use Redis-backed memory for session/persistent scopes. */
+  useRedisMemory Boolean         @default(false)
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   project        Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -204,6 +208,7 @@ model Harness {
   runs           Run[]
   evaluationBatches EvaluationBatch[]
   experimentCandidates ExperimentCandidate[]
+  optimizationSessions OptimizationSession[]
 
   @@unique([projectId, slug])
   @@index([projectId])
@@ -244,6 +249,8 @@ model HarnessVersion {
   runs         Run[]
   evaluations  EvaluationBatch[]
   experimentCandidates ExperimentCandidate[]
+  optimizationBaselines OptimizationSession[]
+  optimizationCandidates OptimizationCandidate[]
 
   @@unique([harnessId, version])
   @@index([harnessId, contentHash])
@@ -466,6 +473,7 @@ model Dataset {
   versions       DatasetVersion[]
   batches        EvaluationBatch[]
   experiments    Experiment[]
+  optimizationSessions OptimizationSession[]
 
   @@unique([projectId, slug])
   @@index([projectId])
@@ -509,6 +517,7 @@ model DatasetVersion {
   dataset     Dataset           @relation(fields: [datasetId], references: [id], onDelete: Cascade)
   batches     EvaluationBatch[] @relation("BatchDatasetVersion")
   experiments Experiment[]      @relation("ExperimentDatasetVersion")
+  optimizationSessions OptimizationSession[] @relation("OptSessionDatasetVersion")
 
   @@unique([datasetId, version])
   @@index([datasetId, contentHash])
@@ -604,6 +613,8 @@ model EvaluationBatch {
   cases             EvaluationCaseResult[]
   results           EvaluationResult[]
   experimentReplicates ExperimentCandidateReplicate[]
+  optimizationSourceOf OptimizationSession[] @relation("OptSourceBatch")
+  optimizationCandidates OptimizationCandidate[] @relation("OptCandidateBatch")
 
   @@index([projectId, createdAt])
   @@index([harnessVersionId])
@@ -869,4 +880,325 @@ model ExperimentRun {
   @@unique([experimentId, candidateId, replicate, caseKey])
   @@index([experimentId, orderIndex])
   @@index([candidateId])
+}
+// =============================================================================
+// Phase 5 — Loop engineering & harness optimization
+//
+// An OptimizationSession is a *bounded improvement process* over one baseline
+// harness version, seeded by one real EvaluationBatch. It never mutates a
+// published version: every improvement is proposed as a typed Mutation, staged
+// into an isolated candidate HarnessDraft (its own content-hashed
+// HarnessVersion), evaluated through the Phase 3 engine, and compared against
+// the baseline by deterministic acceptance policies.
+//
+// Evidence chain, kept end-to-end: FailureFinding → ImprovementHypothesis →
+// OptimizationCandidate (with HarnessMutation before/after values) →
+// OptimizationEvaluation → OptimizationDecision, plus an append-only
+// OptimizationEvent timeline. Nothing here duplicates the run, evaluation or
+// experiment tables — a candidate is evaluated by *creating a real
+// EvaluationBatch*, exactly like a normal harness version is.
+// =============================================================================
+
+enum OptimizationStatus {
+  DRAFT
+  QUEUED
+  RUNNING
+  WAITING_FOR_REVIEW
+  COMPLETED
+  PARTIALLY_COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum OptimizationStrategy {
+  RULE_BASED
+  LLM_ASSISTED
+  MANUAL
+}
+
+enum OptimizationCandidateStatus {
+  PROPOSED
+  VALIDATING
+  INVALID
+  EVALUATING
+  EVALUATED
+  FAILED
+}
+
+enum OptimizationDecisionKind {
+  ACCEPT
+  REJECT
+  INCONCLUSIVE
+}
+
+model OptimizationSession {
+  id          String              @id @default(cuid())
+  projectId   String
+  agentId     String
+  harnessId   String
+  name        String
+  description String?
+  status      OptimizationStatus  @default(DRAFT)
+  strategy    OptimizationStrategy @default(RULE_BASED)
+
+  // --- the fixed frame: baseline + the evidence the loop works from ---------
+  /** The immutable baseline version every candidate is measured against. */
+  baselineVersionId   String
+  /** The real EvaluationBatch whose failures seed the analysis. */
+  sourceBatchId       String
+  datasetId           String
+  datasetVersionId    String
+  /** Set when this session's best candidate was promoted to current version. */
+  promotedCandidateId String?
+  /** Snapshot of evaluator revisions, scoring policy and pass rule. */
+  evaluatorConfig     Json
+  scoringPolicy       ScoringPolicy @default(REQUIRE_ALL)
+  passThreshold       Float?
+
+  // --- intent ---------------------------------------------------------------
+  /** { primaryMetric, direction, secondary: [{metric, direction, weight}] }. */
+  objective   Json
+  /** Hard constraints a candidate must satisfy to be eligible. */
+  constraints Json
+  /** Runtime/loop ceilings: iterations, candidates, runs, tokens, cost, wall. */
+  limits      Json
+  /** Complete immutable snapshot, written once at launch. Null while draft. */
+  configSnapshot Json?
+
+  // --- bounded progress -----------------------------------------------------
+  currentIteration Int @default(0)
+  maxIterations    Int @default(1)
+  candidateCount   Int @default(0)
+  runCount         Int @default(0)
+  /** Agent-run usage only; analyzer-model usage is tracked separately. */
+  tokenUsage       Int @default(0)
+  estimatedCostUsd Float @default(0)
+  analyzerTokenUsage Int @default(0)
+
+  /** Deterministic stopping verdict, e.g. "max_iterations" | "no_hypotheses". */
+  stopReason  String?
+  /** Structured summary produced when the session settles. */
+  report      Json?
+
+  // --- the current recommendation (never automatic; set by a decision) ------
+  bestCandidateId String?
+  /** Gate for human review before evaluation / before selection. */
+  requireApproval Boolean @default(true)
+
+  cancelRequestedAt DateTime?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdBy         String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  project         Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  agent           Agent                  @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  harness         Harness                @relation(fields: [harnessId], references: [id], onDelete: Restrict)
+  baselineVersion HarnessVersion          @relation(fields: [baselineVersionId], references: [id], onDelete: Restrict)
+  sourceBatch     EvaluationBatch        @relation("OptSourceBatch", fields: [sourceBatchId], references: [id], onDelete: Restrict)
+  dataset         Dataset                @relation(fields: [datasetId], references: [id], onDelete: Restrict)
+  datasetVersion  DatasetVersion         @relation("OptSessionDatasetVersion", fields: [datasetVersionId], references: [id], onDelete: Restrict)
+
+  findings    FailureFinding[]
+  hypotheses  ImprovementHypothesis[]
+  candidates  OptimizationCandidate[]
+  decisions   OptimizationDecision[]
+  events      OptimizationEvent[]
+
+  @@index([projectId, createdAt])
+  @@index([agentId, createdAt])
+  @@index([harnessId])
+  @@index([status])
+}
+
+model FailureFinding {
+  id        String           @id @default(cuid())
+  sessionId String
+  /** Canonical failure category, e.g. "incorrect_final_answer". */
+  category  String
+  /** Short human-readable summary of the observed weakness. */
+  summary   String
+  /** Observed frequency, e.g. "4/12 cases", or null when not measurable. */
+  frequency String?
+  /** Evidence-quality marker: "high" | "medium" | "low" | "llm". */
+  confidence String          @default("high")
+  /** Why this matters for the objective. */
+  impact    String?
+  /** A concrete next step for a human investigator. */
+  investigation String?
+  /** True when an LLM produced or shaped this finding — never a fact. */
+  isLlm     Boolean          @default(false)
+
+  // Evidence pointers — real rows, never invented.
+  caseKeys   String[]
+  runIds     String[]
+  evaluatorKeys String[]
+  traceRefs  Json?
+
+  hypothesisIds String[]
+  createdAt  DateTime        @default(now())
+
+  session OptimizationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, category])
+  @@index([sessionId])
+}
+
+model ImprovementHypothesis {
+  id        String           @id @default(cuid())
+  sessionId String
+  findingId String?
+  /** The failure category this hypothesis targets. */
+  category  String
+  title     String
+  /** The observation, stated plainly. */
+  observation String
+  /** The testable claim: "adding X may improve Y". */
+  hypothesis String
+  /** The specific proposed change, in plain language. */
+  proposedChange String
+  /** The outcome this change is expected to produce. */
+  expectedOutcome String
+  /** The cost of being wrong. */
+  tradeoff String?
+  /** Metric keys this hypothesis is expected to move. */
+  metricKeys String[]
+  /** Machine-checkable acceptance criteria for the resulting candidate. */
+  acceptanceCriteria Json?
+  /** Evidence quality backing the hypothesis. */
+  confidence String      @default("medium")
+  requiresReview Boolean @default(true)
+
+  /** Which strategy produced it. */
+  origin   OptimizationStrategy @default(RULE_BASED)
+  status   String              @default("PROPOSED") // PROPOSED | SELECTED | EXHAUSTED | SUPERSEDED
+  /** Dedup key: same hypothesis in the same session is stored once. */
+  fingerprint String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  session   OptimizationSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  candidates OptimizationCandidate[]
+
+  @@unique([sessionId, fingerprint])
+  @@index([sessionId, status])
+  @@index([sessionId, category])
+}
+
+model OptimizationCandidate {
+  id          String                    @id @default(cuid())
+  sessionId   String
+  iteration   Int
+  hypothesisId String?
+  label       String
+
+  /** Isolated draft; never the published HarnessDraft of the harness. */
+  draftId     String?
+  /** The immutable candidate version, published once validation passes. */
+  versionId   String?
+  contentHash String?
+  version     HarnessVersion?   @relation(fields: [versionId], references: [id], onDelete: SetNull)
+
+  status      OptimizationCandidateStatus @default(PROPOSED)
+  /** The sealed EvaluationBatch that evaluated this candidate, once run. */
+  evaluationBatchId String?
+  /** Structural + policy validation outcome. */
+  validation  Json?
+  /** Typed mutations applied to reach this candidate, with before/after. */
+  changeSet   Json?
+  /**
+   * The exact validated definition this candidate carries, written when the loop
+   * parks the candidate for human approval. A resumed pass rebuilds the version
+   * from it, so an approved candidate is never lost to a restart.
+   */
+  pendingDefinition Json?
+
+  /** Baseline metrics captured at comparison time; null until evaluated. */
+  baselineMetrics Json?
+  /** Candidate's own metrics from its EvaluationBatch; null until evaluated. */
+  metrics     Json?
+  /** Deterministic acceptance result; null until evaluated. */
+  decision    Json?
+  /** ACCEPT | REJECT | INCONCLUSIVE, mirroring `decision`. */
+  decisionKind OptimizationDecisionKind?
+  /** Dedup: identical content under the same hypothesis is not re-evaluated. */
+  fingerprint String
+
+  /** Analyzer-model usage spent proposing this candidate (not agent runs). */
+  analyzerTokenUsage Int @default(0)
+
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  session       OptimizationSession       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  hypothesis    ImprovementHypothesis?    @relation(fields: [hypothesisId], references: [id], onDelete: SetNull)
+  sourceBatch   EvaluationBatch?          @relation("OptCandidateBatch", fields: [evaluationBatchId], references: [id], onDelete: SetNull)
+  mutations     HarnessMutation[]
+  decisions     OptimizationDecision[]
+
+  @@unique([sessionId, fingerprint])
+  @@index([sessionId, iteration])
+  @@index([sessionId, status])
+  @@index([hypothesisId])
+}
+
+/** One typed, schema-validated change; the atomic unit of mutation. */
+model HarnessMutation {
+  id          String           @id @default(cuid())
+  candidateId String
+  /** Operation discriminator, e.g. "set_prompt", "insert_node", "set_policy". */
+  operation   String
+  /** JSON-pointer-ish target, e.g. "nodes/reasoner/config/systemPrompt". */
+  target      String
+  before      Json?
+  after       Json?
+  reason      String?
+  /** LOW | MEDIUM | HIGH — how much risk this change carries. */
+  risk        String          @default("LOW")
+  applied     Boolean         @default(false)
+
+  createdAt DateTime             @default(now())
+  candidate OptimizationCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([candidateId])
+}
+
+
+
+/** An immutable, auditable record of one decision the loop made. */
+model OptimizationDecision {
+  id        String                @id @default(cuid())
+  sessionId String
+  candidateId String?
+  kind      OptimizationDecisionKind
+  /** The deterministic policy verdict, including every reason string. */
+  rationale Json
+  /** Actor: "system" for the policy, or a user id for a human decision. */
+  actor     String               @default("system")
+  createdAt DateTime             @default(now())
+
+  session   OptimizationSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  candidate OptimizationCandidate? @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@index([candidateId])
+}
+
+/** Append-only audit timeline: every meaningful step, in order. */
+model OptimizationEvent {
+  id        String    @id @default(cuid())
+  sessionId String
+  /** Machine-readable step, e.g. "analysis.completed", "candidate.rejected". */
+  kind      String
+  message   String
+  /** Record this event points at, e.g. the candidate or batch id. */
+  ref       String?
+  payload   Json?
+  createdAt DateTime  @default(now())
+
+  session OptimizationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
 }
