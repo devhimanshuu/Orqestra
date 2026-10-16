@@ -278,11 +278,10 @@ test.describe("landing page", () => {
       }
     }
 
-    // The controls show no text, so their names live in `aria-label` — and the
-    // small print that says where the page's numbers come from is there too.
+    // The controls show no text, so their names live in `aria-label`, and the
+    // footer's small print carries the copyright line.
     expect(directory.controls.length).toBeGreaterThanOrEqual(4);
     for (const label of directory.controls) expect(label.length).toBeGreaterThan(3);
-    expect(directory.text).toContain("Every figure quoted on this page");
     expect(directory.text).toContain("© 2026 Orqestra");
 
     // On a desktop the grid is the reference's eight slots and carries the

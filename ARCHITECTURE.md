@@ -239,6 +239,45 @@ a settled experiment and a pass-rate threshold, and only promotion advances a
 harness's `currentVersion` — publishing merely makes a version available, so a
 winning `HarnessVersion` is never rewritten.
 
+### Loop engineering & harness optimization (Phase 5)
+
+- [`optimization.types.ts`](src/modules/optimization/optimization.types.ts) —
+  `OptimizationSession` (the bounded process), `FailureFinding`,
+  `ImprovementHypothesis`, `OptimizationCandidate` (a *new* version built from a
+  mutated copy), `CandidateDecision`, and the append-only event timeline.
+
+A session is pinned at start to one published baseline version, one sealed
+source `EvaluationBatch`, and an immutable `configSnapshot` (dataset version,
+ evaluator revisions, objective, constraints, limits, engine and pricing
+versions). The pass then runs `analysis → hypotheses → mutation → validation →
+ evaluation → comparison → decision`, checkpointing rows at every step, so a
+crashed worker resumes instead of replaying and a redelivered job runs nothing
+twice. Candidates are evaluated by the ordinary runtime and evaluation engine
+over the same dataset version and evaluator revisions as the baseline — there is
+no second runtime, no second evaluator.
+
+Analysis is deterministic first: [`analysis/failure-analysis.ts`](src/modules/optimization/analysis/failure-analysis.ts)
+classifies evaluator verdicts and structural facts (tool repetition, loop
+iterations, latency and token ceilings measured against the batch's own norm)
+and attaches the case keys, run ids and step indexes that support each finding.
+[`analysis/llm-analysis.ts`](src/modules/optimization/analysis/llm-analysis.ts)
+may then ask a configured model to name the pattern across those findings; it
+only ever sees the deterministic output, everything it returns is stored with
+`confidence: "llm"` (and downgraded again by the hypothesis generator), a claim
+naming a case the rules never observed is dropped, and its tokens are accounted
+separately from agent runs. Mutations are typed operations
+([`mutations/operations.ts`](src/modules/optimization/mutations/operations.ts))
+applied to a structural clone; candidates pass the same graph validator a
+published harness passes, and a refusal is recorded with its reason. Acceptance
+is a deterministic policy (`acceptance.ts`, `stopping.ts`): a hard constraint
+beats a better primary metric, a small sample is *indicative* rather than
+established, and every ceiling (iterations, candidates, runs, tokens, cost,
+wall-clock, invalid streaks, stall) is checked before work starts.
+
+The baseline is read-only throughout. Promotion is a separate, explicitly
+attributed act that only ever moves `Harness.currentVersion` forward onto a
+candidate's immutable version.
+
 ### Memory (reserved)
 
 `src/modules/memory` deliberately contains only a README: short-term memory belongs

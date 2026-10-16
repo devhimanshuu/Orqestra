@@ -6,16 +6,19 @@ Orqestra is not another agent builder. The LLM is one component; the _harness_ �
 the way an agent reasons, uses tools, manages context and memory, loops, recovers
 from failures, and terminates — is the product.
 
-> **Current status: Phase 4 — Harness Experiments & A/B Testing.**
+> **Current status: Phase 5 — Loop Engineering & Harness Optimization.**
 > Projects, agents, harnesses, the visual builder, the agent runtime (compiler →
 > execution plan → state machine → trace → SSE), the run lab (run history, run
 > detail, live timeline), the evaluation engine (datasets, evaluators, sealed
-> evaluation batches, metrics, regression comparison, sanitized exports), and
-> the experimentation platform (creation wizard, immutable baseline/candidate
-> pins, execution through the same runtime, live progress, objective-driven
-> ranking, statistical evidence, comparison views, gated promotion of the
-> winning version) are in place. Harness evolution beyond controlled
-> experiments lands in later phases (see [Roadmap](#roadmap)).
+> evaluation batches, metrics, regression comparison, sanitized exports), the
+> experimentation platform (immutable baseline/candidate pins, execution through
+> the same runtime, objective-driven ranking, statistical evidence, gated
+> promotion of the winning version), and the optimization engine (bounded
+> sessions, deterministic failure analysis with LLM-labelled hypotheses, typed
+> harness mutations, candidate validation, reuse of the existing evaluation
+> engine, deterministic acceptance policies and a complete audit trail) are in
+> place. The loop proposes and measures; the developer decides — a published
+> harness version is never rewritten (see [Roadmap](#roadmap)).
 
 ---
 
@@ -246,6 +249,47 @@ and an unavailable metric is `null`, not `0`; a crashing evaluator records an
 pricing source and unpriced models named; comparison refuses batches from
 different datasets and aligns cases by their stable `caseKey`, never by position.
 
+### The Phase 5 loop
+
+An **optimization session** is a bounded improvement process over one harness:
+baseline version × sealed source evaluation batch × objective × hard constraints ×
+ceilings (iterations, candidates, runs, tokens, cost, wall-clock). Starting it
+seals an immutable configuration snapshot; the session then runs
+`analyze → hypothesize → mutate → validate → evaluate → compare → decide`,
+checkpointing every step so a crashed pass resumes rather than replays.
+
+Failure analysis is deterministic first — evaluator verdicts plus structural
+facts (tool repetition, loop iterations, latency and token ceilings measured
+against the batch's own norm) — and every finding carries the case keys, run ids
+and step indexes that support it. When a session is given an `analyzerModel`, an
+LLM may then name the *pattern* across those findings; its claims are stored with
+`confidence: "llm"`, may only cite cases the rules actually observed, and its
+analyzer tokens are accounted apart from agent runs.
+
+Hypotheses become **typed mutations** (`set_prompt_instruction`,
+`set_node_config`, `insert_node`, `remove_node`, `reconnect_edge`) applied to a
+structural clone of the baseline. A candidate passes the same graph validator a
+published harness passes, is stored as an **immutable new version**, and is
+evaluated through the ordinary runtime and evaluation engine over the same
+dataset version and evaluator revisions as the baseline. Acceptance is
+deterministic: a hard constraint beats a better primary metric, a small sample is
+indicative rather than established, and a rejected candidate never outranks an
+accepted one. Promotion is a separate, explicitly attributed action that only
+moves `Harness.currentVersion` forward.
+
+```text
+POST /api/optimizations                    → create a draft session
+POST /api/optimizations/plan               → pre-flight: volume, issues, warnings
+POST /api/optimizations/:id/start          → seal the snapshot and dispatch a pass
+POST /api/optimizations/:id/cancel         → durable cancellation
+POST /api/optimizations/:id/review         → approve or reject a parked candidate
+POST /api/optimizations/:id/candidates     → attach a hand-built candidate version
+POST /api/optimizations/:id/promote        → the only way a candidate reaches currentVersion
+GET  /api/optimizations/:id/candidates     → every candidate, with its evidence
+GET  /api/optimizations/:id/report         → the persisted report
+GET  /api/optimizations/:id/export         → JSON or Markdown engineering report
+```
+
 ## 6. Environment variables
 
 The environment is validated with Zod at startup (and inside `/api/health`).
@@ -326,6 +370,14 @@ pnpm verify      # lint + typecheck + unit tests + production build
   and revisions, a sealed baseline batch, a regressed candidate batch, the
   regression comparison, run-level evaluation with SKIPPED semantics, sanitized
   export, dataset export/import round trip, and the delete guards.
+- **Experiment & optimization verification** (`pnpm verify:phase4`,
+  `pnpm verify:phase5`) drive the experimentation and optimization engines end to
+  end against the real database: pinned candidates, execution through the same
+  runtime, ranking and comparison, promotion gates, and — for Phase 5 — findings
+  linked to real runs, typed change sets, candidate validation, deterministic
+  accept/reject, the approval gate, run budgets, cancellation, manual
+  candidates, a labelled LLM-assisted analysis pass, workspace isolation and
+  proof that every published version stayed byte-identical.
 - **E2E tests** run against a production build (Playwright starts
   `next build && next start` on port 3100) and require the database to be running,
   migrated, and seeded (`playwright.config.ts` loads `.env`, so tests use the same
@@ -383,6 +435,15 @@ extension points for later phases. Key entry points:
   [`evaluations-view.tsx`](src/components/evaluation/evaluations-view.tsx),
   [`evaluation-detail-view.tsx`](src/components/evaluation/evaluation-detail-view.tsx),
   [`comparison-view.tsx`](src/components/evaluation/comparison-view.tsx)
+- Optimization engine: [`optimization.service.ts`](src/modules/optimization/optimization.service.ts),
+  [`analysis/failure-analysis.ts`](src/modules/optimization/analysis/failure-analysis.ts),
+  [`analysis/llm-analysis.ts`](src/modules/optimization/analysis/llm-analysis.ts),
+  [`mutations/apply.ts`](src/modules/optimization/mutations/apply.ts),
+  [`policies/acceptance.ts`](src/modules/optimization/policies/acceptance.ts),
+  [`jobs/orchestrator.ts`](src/modules/optimization/jobs/orchestrator.ts),
+  [`reporting/report.ts`](src/modules/optimization/reporting/report.ts)
+- Optimization UI: [`optimizations-view.tsx`](src/components/optimization/optimizations-view.tsx),
+  [`optimization-detail-view.tsx`](src/components/optimization/optimization-detail-view.tsx)
 - Run/trace model: [`run.types.ts`](src/modules/runtime/run.types.ts),
   [`prisma/schema.prisma`](prisma/schema.prisma)
 - LLM gateway: [`llm.gateway.ts`](src/modules/llm/llm.gateway.ts)
@@ -403,12 +464,12 @@ extension points for later phases. Key entry points:
 | **0** | **Foundation & architecture**    | delivered                                                                                                                                                                                                                                                     |
 | **1** | **Visual harness builder**       | delivered — projects, agents, harnesses, React Flow builder, node inspector, graph validation, draft autosave, immutable versions, import/export                                                                                                              |
 | **2** | **Agent runtime**                | delivered — compiler → execution plan, state machine, node executors, expression resolver, loop/limits/retry policies, tool permissions, LLM gateway (Gemini/Ollama/mock), queue + worker, runs API, SSE updates, run history & run detail UI                                  |
-| **3** | **Evaluation engine & run lab**  | delivered — versioned datasets, configured evaluators (deterministic + LLM judge), sealed evaluation batches with pinned snapshots, per-case verdicts with evidence, persisted metrics, regression comparison, sanitized exports, run-level evaluation                                                        || 4     | **Experiments**                  | delivered — multi-step creation wizard, immutable baseline/candidate pins, execution through the existing runtime with pause/resume/cancel and budgets, live progress, objective-constrained ranking, statistical evidence with qualified claims, comparison view with regression/path-lead analysis, gated promotion of the winning version to the harness's current version                                                                                          |
-| 5     | Harness versioning & A/B testing | immutable versions, content hashes, run→version pinning                                                                                                                                                                                                       |
-| 6     | Experiment engine                | `Experiment`/`ExperimentRun` concepts with version-pinned variants                                                                                                                                                                                            |
-| 7     | Loop engineering                 | `loop` node type, events, iteration state                                                                                                                                                                                                                     |
-| 8     | Harness optimization             | evaluation + experiment data model                                                                                                                                                                                                                            |
-| 9     | Self-evolving harnesses          | `HarnessMutation`/`OptimizationRun` will be additive tables                                                                                                                                                                                                   |
+| **3** | **Evaluation engine & run lab**  | delivered — versioned datasets, configured evaluators (deterministic + LLM judge), sealed evaluation batches with pinned snapshots, per-case verdicts with evidence, persisted metrics, regression comparison, sanitized exports, run-level evaluation                                                        |
+| **4** | **Experiments**                  | delivered — multi-step creation wizard, immutable baseline/candidate pins, execution through the existing runtime with pause/resume/cancel and budgets, live progress, objective-constrained ranking, statistical evidence with qualified claims, comparison view with regression/path-lead analysis, gated promotion of the winning version to the harness's current version                                                                                          |
+| **5** | **Loop engineering & harness optimization** | delivered — bounded optimization sessions sealed to an immutable snapshot, deterministic failure analysis (plus a fenced, labelled LLM-assisted pass), structured hypotheses, typed and auditable harness mutations, candidate validation against the published-graph rules, evaluation through the existing runtime and evaluation engine, objective-constrained acceptance with hard constraints, iteration/run/token/cost ceilings with durable cancellation, the approval gate, a full timeline, report and JSON/Markdown export, and promotion that only ever moves forward |
+| 6     | Memory & context engineering     | short-term in Redis, long-term in PostgreSQL + pgvector; the `memory` node type already exists in the DSL                                                                                                                       |
+| 7     | Multi-agent orchestration        | delegation between agents inside one harness, with the same trace and evaluation model                                                                                                                                    |
+| 8     | Self-evolving harnesses          | continuous, gated optimization across a lineage of versions — always human-approved, never autonomous |
 
 **Phase 0 explicitly does not include:** the visual editor, multi-agent
 orchestration, autonomous evolution, prompt optimization, complex RAG, arbitrary
