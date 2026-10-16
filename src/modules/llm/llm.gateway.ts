@@ -2,6 +2,7 @@ import { logger } from "@/lib/logging/logger";
 import {
   LLMProviderError,
   parseModelRef,
+  type LLMChunk,
   type LLMProvider,
   type LLMRequest,
   type LLMResponse,
@@ -31,6 +32,16 @@ export interface LLMGateway {
   getProvider(providerId: string): LLMProvider;
   listProviders(): ProviderInfo[];
   generate(ref: string | ModelRefInput, request: Omit<LLMRequest, "model">): Promise<LLMResponse>;
+  /**
+   * Token stream for the same request shape as generate. Optional at the
+   * interface so lightweight stubs stay valid; the real gateway always
+   * implements it and throws provider_not_configured for providers that
+   * cannot stream.
+   */
+  stream?(
+    ref: string | ModelRefInput,
+    request: Omit<LLMRequest, "model">,
+  ): AsyncIterable<LLMChunk>;
 }
 
 export interface ModelRefInput {
@@ -146,6 +157,51 @@ class Gateway implements LLMGateway {
         `Provider "${providerId}" failed: ${error instanceof Error ? error.message : String(error)}`,
         { retryable: true, cause: error },
       );
+    }
+  }
+
+  async *stream(
+    ref: string | ModelRefInput,
+    request: Omit<LLMRequest, "model">,
+  ): AsyncIterable<LLMChunk> {
+    const { provider: providerId, model } = toModelRef(ref);
+    const provider = this.getProvider(providerId);
+
+    if (!provider.isConfigured()) {
+      throw new LLMProviderError(
+        "provider_not_configured",
+        providerId,
+        `Provider "${providerId}" is not configured (missing credentials or base URL)`,
+      );
+    }
+    if (provider.stream === undefined) {
+      throw new LLMProviderError(
+        "provider_not_configured",
+        providerId,
+        `Provider "${providerId}" does not support streaming`,
+      );
+    }
+
+    const iterator = provider.stream({ ...request, model })[Symbol.asyncIterator]();
+    while (true) {
+      let next: IteratorResult<LLMChunk>;
+      try {
+        next = await iterator.next();
+      } catch (error) {
+        if (error instanceof LLMProviderError) {
+          throw error;
+        }
+        throw new LLMProviderError(
+          "provider_error",
+          providerId,
+          `Provider "${providerId}" stream failed: ${error instanceof Error ? error.message : String(error)}`,
+          { retryable: true, cause: error },
+        );
+      }
+      if (next.done) {
+        return;
+      }
+      yield next.value;
     }
   }
 }

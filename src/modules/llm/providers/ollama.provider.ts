@@ -2,10 +2,12 @@ import { z } from "zod";
 import { getEnv } from "@/config/env";
 import {
   LLMProviderError,
+  type LLMChunk,
   type LLMProvider,
   type LLMRequest,
   type LLMResponse,
 } from "../llm.types";
+import { consumeTextStream } from "./stream.utils";
 
 /**
  * Ollama adapter — talks to a local Ollama server via its REST API.
@@ -14,6 +16,40 @@ import {
  */
 
 const REQUEST_TIMEOUT_MS = 120_000; // local models can be slow
+const HEALTH_TIMEOUT_MS = 2_000;
+/** Reachability results are cached so repeated checks don't hammer a dead server. */
+const HEALTH_TTL_MS = 30_000;
+
+let cachedHealth: { reachable: boolean; at: number } | null = null;
+
+/**
+ * Probe the local Ollama server (`GET /api/version`). Results are cached for
+ * 30 s; a failure marks the provider unreachable instead of throwing.
+ */
+export async function checkOllamaHealth(): Promise<boolean> {
+  const now = Date.now();
+  if (cachedHealth !== null && now - cachedHealth.at < HEALTH_TTL_MS) {
+    return cachedHealth.reachable;
+  }
+  const baseUrl = getEnv().OLLAMA_BASE_URL.replace(/\/+$/, "");
+  let reachable = false;
+  try {
+    const response = await fetch(`${baseUrl}/api/version`, {
+      method: "GET",
+      signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+    });
+    reachable = response.ok;
+  } catch {
+    reachable = false;
+  }
+  cachedHealth = { reachable, at: now };
+  return reachable;
+}
+
+/** Test hook: drop the cached reachability result. */
+export function resetOllamaHealthCache(): void {
+  cachedHealth = null;
+}
 
 export function buildOllamaRequest(request: LLMRequest): Record<string, unknown> {
   const options: Record<string, unknown> = {};
@@ -79,12 +115,29 @@ export const ollamaProvider: LLMProvider = {
   name: "Ollama (local)",
 
   isConfigured(): boolean {
-    // Ollama needs no credentials; the base URL always has a default.
-    return getEnv().OLLAMA_BASE_URL.trim() !== "";
+    // No credentials needed; a known-unreachable server (cached health check)
+    // counts as unconfigured so listings don't advertise it.
+    if (getEnv().OLLAMA_BASE_URL.trim() === "") {
+      return false;
+    }
+    return cachedHealth === null || cachedHealth.reachable;
+  },
+
+  checkHealth(): Promise<boolean> {
+    return checkOllamaHealth();
   },
 
   async generate(request: LLMRequest): Promise<LLMResponse> {
     const baseUrl = getEnv().OLLAMA_BASE_URL.replace(/\/+$/, "");
+
+    if (!(await checkOllamaHealth())) {
+      throw new LLMProviderError(
+        "provider_not_configured",
+        "ollama",
+        `Ollama is not reachable at ${baseUrl} — start it with "ollama serve"`,
+      );
+    }
+
     const startedAt = performance.now();
 
     let response: Response;
@@ -138,5 +191,83 @@ export const ollamaProvider: LLMProvider = {
       usage: parsed.usage,
       latencyMs: Math.round(performance.now() - startedAt),
     };
+  },
+
+  async *stream(request: LLMRequest): AsyncIterable<LLMChunk> {
+    const baseUrl = getEnv().OLLAMA_BASE_URL.replace(/\/+$/, "");
+
+    if (!(await checkOllamaHealth())) {
+      throw new LLMProviderError(
+        "provider_not_configured",
+        "ollama",
+        `Ollama is not reachable at ${baseUrl} — start it with "ollama serve"`,
+      );
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...buildOllamaRequest(request),
+          stream: true,
+        }),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (error) {
+      const timedOut = error instanceof Error && error.name === "TimeoutError";
+      throw new LLMProviderError(
+        timedOut ? "timeout" : "provider_error",
+        "ollama",
+        timedOut
+          ? "Ollama request timed out"
+          : `Could not reach Ollama at ${baseUrl}: ${error instanceof Error ? error.message : String(error)}`,
+        { retryable: true, cause: error },
+      );
+    }
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      const missingModel = detail.toLowerCase().includes("not found");
+      throw new LLMProviderError(
+        "provider_error",
+        "ollama",
+        missingModel
+          ? `Ollama model "${request.model}" is not pulled — run: ollama pull ${request.model}`
+          : `Ollama returned HTTP ${response.status}: ${detail.slice(0, 300)}`,
+        { retryable: response.status >= 500 },
+      );
+    }
+    if (response.body === null) {
+      throw new LLMProviderError("invalid_response", "ollama", "Ollama stream had no body");
+    }
+
+    // Ollama streams newline-delimited JSON; each line reuses the non-stream
+    // schema (message.content carries the delta for that step).
+    yield* consumeTextStream(
+      response.body,
+      (line) => {
+        let payload: unknown;
+        try {
+          payload = JSON.parse(line);
+        } catch {
+          return null;
+        }
+        const parsed = ollamaResponseSchema.safeParse(payload);
+        if (!parsed.success) {
+          return null;
+        }
+        return {
+          provider: "ollama",
+          model: request.model,
+          delta: parsed.data.message.content,
+          finishReason: parsed.data.done ? (parsed.data.done_reason ?? "stop") : null,
+          done: parsed.data.done,
+        };
+      },
+      "ollama",
+      request.model,
+    );
   },
 };

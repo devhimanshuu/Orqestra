@@ -82,6 +82,8 @@ export interface LLMProvider {
   /** False when required credentials/config are absent — gateway reports this without throwing. */
   isConfigured(): boolean;
   generate(request: LLMRequest): Promise<LLMResponse>;
+  /** Optional reachability probe (e.g. local servers); absent means "assume up". */
+  checkHealth?(): Promise<boolean>;
   /** Streaming is optional; Phase 2 wires it into the runtime. */
   stream?(request: LLMRequest): AsyncIterable<LLMChunk>;
 }

@@ -2,10 +2,12 @@ import { z } from "zod";
 import { getEnv } from "@/config/env";
 import {
   LLMProviderError,
+  type LLMChunk,
   type LLMProvider,
   type LLMRequest,
   type LLMResponse,
 } from "../llm.types";
+import { consumeTextStream } from "./stream.utils";
 
 /**
  * Google Gemini adapter.
@@ -73,6 +75,28 @@ const geminiResponseSchema = z.object({
     })
     .optional(),
 });
+
+/**
+ * Extracts the JSON payload from one server-sent-event line of a
+ * `:streamGenerateContent?alt=sse` response. Returns null for blank/comment
+ * lines, keep-alives and `[DONE]` markers, and for undecodable payloads
+ * (a malformed event must not abort an otherwise healthy stream).
+ */
+export function parseGeminiSseLine(line: string): unknown | null {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("data:")) {
+    return null;
+  }
+  const payload = trimmed.slice("data:".length).trim();
+  if (payload === "" || payload === "[DONE]") {
+    return null;
+  }
+  try {
+    return JSON.parse(payload) as unknown;
+  } catch {
+    return null;
+  }
+}
 
 export interface ParsedGeminiResponse {
   content: string;
@@ -176,5 +200,80 @@ export const geminiProvider: LLMProvider = {
       usage: parsed.usage,
       latencyMs: Math.round(performance.now() - startedAt),
     };
+  },
+
+  async *stream(request: LLMRequest): AsyncIterable<LLMChunk> {
+    const apiKey = getEnv().GEMINI_API_KEY.trim();
+    if (apiKey === "") {
+      throw new LLMProviderError("provider_not_configured", "gemini", "GEMINI_API_KEY is not set");
+    }
+
+    const url = `${API_BASE}/${request.model}:streamGenerateContent?alt=sse`;
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify(buildGeminiRequest(request)),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (error) {
+      const timedOut = error instanceof Error && error.name === "TimeoutError";
+      throw new LLMProviderError(
+        timedOut ? "timeout" : "provider_error",
+        "gemini",
+        timedOut ? "Gemini request timed out" : `Gemini request failed: ${String(error)}`,
+        { retryable: true, cause: error },
+      );
+    }
+
+    if (response.status === 429) {
+      throw new LLMProviderError("rate_limited", "gemini", "Gemini rate limit exceeded", {
+        retryable: true,
+      });
+    }
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new LLMProviderError(
+        "provider_error",
+        "gemini",
+        `Gemini returned HTTP ${response.status}: ${detail.slice(0, 300)}`,
+        { retryable: response.status >= 500 },
+      );
+    }
+    if (response.body === null) {
+      throw new LLMProviderError("invalid_response", "gemini", "Gemini stream had no body");
+    }
+
+    yield* consumeTextStream(
+      response.body,
+      (line) => {
+        const event = parseGeminiSseLine(line);
+        if (event === null) {
+          return null;
+        }
+        const parsed = geminiResponseSchema.safeParse(event);
+        if (!parsed.success) {
+          return null;
+        }
+        const candidate = parsed.data.candidates[0];
+        const delta = candidate?.content?.parts?.map((part) => part.text).join("") ?? "";
+        const finishReason = candidate?.finishReason ?? null;
+        return {
+          provider: "gemini",
+          model: request.model,
+          delta,
+          finishReason,
+          // Gemini sends a final event carrying finishReason but no text.
+          done: finishReason !== null,
+        };
+      },
+      "gemini",
+      request.model,
+    );
   },
 };
