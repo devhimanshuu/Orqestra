@@ -18,6 +18,7 @@
 import type { HarnessNodeType } from "@/modules/harness/harness.schema";
 import type { Logger } from "@/lib/logging/logger";
 import { ValidationError } from "../errors/runtime-error";
+import { RedisMemoryStore } from "../services/memory";
 import type { ExpressionScope } from "../context/expression";
 import type { ExecutionState } from "../state/execution-state";
 import type { RuntimeTokenUsage } from "../usage/tracker";
@@ -51,7 +52,7 @@ export interface RuntimeNodeServices {
   llm: RuntimeLlmService;
   tools: RuntimeToolService;
   limits: LimitTracker;
-  memory: RunMemoryStore;
+  memory: RunMemoryStore | RedisMemoryStore;
   agent: RuntimeAgentContext | null;
   logger: Logger;
   signal: AbortSignal;

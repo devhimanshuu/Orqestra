@@ -98,7 +98,7 @@ export const contextExecutor: NodeExecutor = {
   },
 };
 
-const MEMORY_SCOPES = ["step", "run"] as const;
+const MEMORY_SCOPES = ["step", "run", "session", "persistent"];
 
 export const memoryExecutor: NodeExecutor = {
   type: "memory",
@@ -119,27 +119,33 @@ export const memoryExecutor: NodeExecutor = {
   async execute(context, config): Promise<NodeExecutionResult> {
     const node = context.node;
     const configured = config["scope"] as string;
-    // Only step/run memory is implemented in Phase 2: session and persistent
-    // scopes validate (so saved harnesses stay forward-compatible) but fall back
-    // to run-scoped memory, and the step says so instead of lying about it.
-    const implemented = (MEMORY_SCOPES as readonly string[]).includes(configured);
-    const scope = configured === "step" ? "step" : MEMORY_SCOPES[1];
     const maxItems = typeof config["maxItems"] === "number" ? config["maxItems"] : 20;
     const memory = context.services.memory;
     // `step` memory is isolated per node visit; `run` memory is shared across the
     // whole run but reset once the run ends.
-    const key = scope === "step" ? `step:${node.id}:${context.run.iteration}` : "run";
+    // `session` and `persistent` scopes are Redis-backed and persist across runs.
+    let key: string;
+    if (configured === "step") {
+      key = `step:${node.id}:${context.run.iteration}`;
+    } else if (configured === "run") {
+      key = "run";
+    } else {
+      // session/persistent: use Redis-backed memory, keyed by scope and agent/run id
+      const agentId = context.services.agent?.id ?? "unknown";
+      const runId = context.run.id ?? "unknown";
+      key = `memory:${configured}:${agentId}:${runId}`;
+    }
 
     const entry = {
       at: context.services.now().toISOString(),
       nodeId: node.id,
       value: context.input,
     };
-    const items = memory.append(key, entry, maxItems);
+    const items = await memory.append(key, entry, maxItems);
 
     return {
       output: {
-        scope,
+        scope: configured,
         size: items.length,
         latest: entry.value,
         items: items.map((item) => item.value),
@@ -149,14 +155,8 @@ export const memoryExecutor: NodeExecutor = {
         memorySize: items.length,
         [`memory_${toReferenceKey(node.label)}`]: items.map((item) => item.value),
       },
-      metadata: { scope, configuredScope: configured, size: items.length, maxItems },
-      ...(implemented
-        ? {}
-        : {
-            warnings: [
-              `Node "${node.label}" (memory): scope "${configured}" is not implemented yet — using run-scoped memory`,
-            ],
-          }),
+      metadata: { scope: configured, configuredScope: configured, size: items.length, maxItems },
     };
   },
 };
+

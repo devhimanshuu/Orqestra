@@ -25,6 +25,7 @@ export function toHarness(row: {
   status: string;
   nodeCount: number;
   edgeCount: number;
+  useRedisMemory?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }): Harness {
@@ -39,6 +40,7 @@ export function toHarness(row: {
     status: row.status as HarnessStatus,
     nodeCount: row.nodeCount,
     edgeCount: row.edgeCount,
+    useRedisMemory: row.useRedisMemory ?? false,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -56,6 +58,7 @@ function toHarnessSummary(row: Parameters<typeof toHarness>[0]): HarnessSummary 
     currentVersion: row.currentVersion,
     nodeCount: row.nodeCount,
     edgeCount: row.edgeCount,
+    useRedisMemory: row.useRedisMemory ?? false,
     updatedAt: row.updatedAt,
   };
 }
@@ -239,6 +242,7 @@ export const harnessRepository = {
       nodeCount?: number;
       edgeCount?: number;
       currentVersion?: number;
+      useRedisMemory?: boolean;
     },
   ): Promise<Harness> {
     const row = await getPrisma().harness.update({
@@ -251,6 +255,9 @@ export const harnessRepository = {
         ...(input.edgeCount !== undefined ? { edgeCount: input.edgeCount } : {}),
         ...(input.currentVersion !== undefined
           ? { currentVersion: input.currentVersion }
+          : {}),
+        ...(input.useRedisMemory !== undefined
+          ? { useRedisMemory: input.useRedisMemory }
           : {}),
       },
     });

@@ -75,6 +75,8 @@ export interface ExecuteHarnessOptions {
   retryPolicy?: RetryPolicy;
   llmTimeoutMs?: number;
   toolTimeoutMs?: number;
+  /** When true, uses Redis-backed memory for session/persistent scopes. */
+  useRedisMemory?: boolean;
   logger: Logger;
   now?: () => Date;
   onStepStarted?: (step: ExecutionStep) => void | Promise<void>;
@@ -202,6 +204,7 @@ export async function executeHarness(options: ExecuteHarnessOptions): Promise<Ex
     retryPolicy: options.retryPolicy ?? DEFAULT_RETRY_POLICY,
     ...(options.llmTimeoutMs !== undefined ? { llmTimeoutMs: options.llmTimeoutMs } : {}),
     ...(options.toolTimeoutMs !== undefined ? { toolTimeoutMs: options.toolTimeoutMs } : {}),
+    ...(options.useRedisMemory !== undefined ? { useRedisMemory: options.useRedisMemory } : {}),
   });
 
   // --- traversal -----------------------------------------------------------

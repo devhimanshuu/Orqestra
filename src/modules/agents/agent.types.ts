@@ -39,6 +39,7 @@ export interface AgentVersion {
   modelConfig: AgentModelConfig;
   /** Declared tool/capability ids the agent may use (harness decides when). */
   capabilities: string[];
+  useRedisMemory: boolean;
   createdBy: string | null;
   createdAt: Date;
 }
@@ -75,6 +76,7 @@ export interface CreateAgentInput {
   instructions: string;
   modelConfig: AgentModelConfig;
   capabilities?: string[];
+  useRedisMemory?: boolean;
   createdBy?: string;
 }
 
@@ -86,6 +88,7 @@ export interface UpdateAgentInput {
   instructions: string;
   modelConfig: AgentModelConfig;
   capabilities?: string[];
+  useRedisMemory?: boolean;
   createdBy?: string;
 }
 

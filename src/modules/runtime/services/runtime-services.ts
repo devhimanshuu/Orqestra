@@ -19,7 +19,7 @@ import type { UsageTracker } from "../usage/tracker";
 import type { RuntimeAgentContext, RuntimeNodeServices } from "../nodes/node-executor";
 import { RuntimeLlmService } from "./llm-service";
 import { RuntimeToolService } from "./tool-service";
-import { RunMemoryStore } from "./memory";
+import { RunMemoryStore, RedisMemoryStore, type SessionMemoryStore } from "./memory";
 import type { ToolPermissionPolicy } from "./permissions";
 
 export interface CreateRuntimeServicesInput {
@@ -40,17 +40,19 @@ export interface CreateRuntimeServicesInput {
   /** Invoked whenever a model call contributes cost (used for cost-limit tracing). */
   onCost?: (costUsd: number | null) => void;
   onToolCallAccepted?: (toolId: string) => void;
+  /** When true, uses Redis-backed memory for session/persistent scope (Phase 3+). */
+  useRedisMemory?: boolean;
 }
 
 export interface RuntimeServices {
   services: RuntimeNodeServices;
   llm: RuntimeLlmService;
   tools: RuntimeToolService;
-  memory: RunMemoryStore;
+  memory: RunMemoryStore | RedisMemoryStore;
 }
 
 export function createRuntimeServices(input: CreateRuntimeServicesInput): RuntimeServices {
-  const memory = new RunMemoryStore();
+  const memory: RunMemoryStore | RedisMemoryStore = new (input.useRedisMemory ? RedisMemoryStore : RunMemoryStore)();
 
   const llm = new RuntimeLlmService({
     gateway: input.gateway,

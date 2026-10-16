@@ -27,6 +27,7 @@ export interface Harness {
   status: HarnessStatus;
   nodeCount: number;
   edgeCount: number;
+  useRedisMemory: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -43,6 +44,7 @@ export interface HarnessSummary {
   currentVersion: number;
   nodeCount: number;
   edgeCount: number;
+  useRedisMemory: boolean;
   updatedAt: Date;
 }
 

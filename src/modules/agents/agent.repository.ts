@@ -48,6 +48,7 @@ export function toAgentVersion(row: {
   instructions: Prisma.JsonValue;
   modelConfig: Prisma.JsonValue;
   capabilities: Prisma.JsonValue;
+  useRedisMemory?: Prisma.JsonValue;
   createdBy: string | null;
   createdAt: Date;
 }): AgentVersion {
@@ -55,6 +56,7 @@ export function toAgentVersion(row: {
   const capabilities = Array.isArray(row.capabilities)
     ? row.capabilities.filter((item): item is string => typeof item === "string")
     : [];
+  const useRedisMemory = row.useRedisMemory === true;
   return {
     id: row.id,
     agentId: row.agentId,
@@ -63,6 +65,7 @@ export function toAgentVersion(row: {
     instructions: typeof row.instructions === "string" ? row.instructions : "",
     modelConfig,
     capabilities,
+    useRedisMemory: useRedisMemory ?? false,
     createdBy: row.createdBy,
     createdAt: row.createdAt,
   };
@@ -77,6 +80,7 @@ export interface CreateAgentRowsInput {
   instructions: string;
   modelConfig: AgentModelConfig;
   capabilities: string[];
+  useRedisMemory?: boolean | undefined;
   createdBy?: string;
 }
 
@@ -87,6 +91,7 @@ export interface CreateAgentVersionRowsInput {
   instructions: string;
   modelConfig: AgentModelConfig;
   capabilities: string[];
+  useRedisMemory?: boolean | undefined;
   createdBy?: string;
 }
 
@@ -181,6 +186,7 @@ export const agentRepository = {
             instructions: input.instructions,
             modelConfig: input.modelConfig as unknown as Prisma.InputJsonValue,
             capabilities: input.capabilities as unknown as Prisma.InputJsonValue,
+            ...(input.useRedisMemory !== undefined ? { useRedisMemory: input.useRedisMemory } : {}),
             createdBy: input.createdBy,
           },
         },
@@ -206,6 +212,7 @@ export const agentRepository = {
           instructions: input.instructions,
           modelConfig: input.modelConfig as unknown as Prisma.InputJsonValue,
           capabilities: input.capabilities as unknown as Prisma.InputJsonValue,
+          ...(input.useRedisMemory !== undefined ? { useRedisMemory: input.useRedisMemory } : {}),
           createdBy: input.createdBy,
         },
       }),

@@ -115,7 +115,7 @@ export async function getAgentOverview(user: AuthUser, agentId: string): Promise
     nodeCount: harness.nodeCount,
   }));
 
-  return { ...agent, latestVersion, harnesses, runCount, versionCount };
+  return { ...agent, latestVersion: { ...latestVersion, useRedisMemory: latestVersion.useRedisMemory ?? false }, harnesses, runCount, versionCount };
 }
 
 export async function updateAgent(
