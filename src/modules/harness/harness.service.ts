@@ -308,6 +308,10 @@ export async function updateHarness(
     ...(parsed.name !== undefined ? { name: parsed.name } : {}),
     ...(parsed.description !== undefined ? { description: parsed.description } : {}),
     ...(status !== undefined ? { status } : {}),
+    ...(parsed.useRedisMemory !== undefined ? { useRedisMemory: parsed.useRedisMemory } : {}),
+    ...(parsed.sessionMemoryTtlSeconds !== undefined
+      ? { sessionMemoryTtlSeconds: parsed.sessionMemoryTtlSeconds }
+      : {}),
   });
   logger.info("harness updated", { harnessId: harness.id, userId: user.id });
   return updated;

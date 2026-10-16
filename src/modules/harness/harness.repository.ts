@@ -243,6 +243,7 @@ export const harnessRepository = {
       edgeCount?: number;
       currentVersion?: number;
       useRedisMemory?: boolean;
+      sessionMemoryTtlSeconds?: number | null;
     },
   ): Promise<Harness> {
     const row = await getPrisma().harness.update({
@@ -258,6 +259,9 @@ export const harnessRepository = {
           : {}),
         ...(input.useRedisMemory !== undefined
           ? { useRedisMemory: input.useRedisMemory }
+          : {}),
+        ...(input.sessionMemoryTtlSeconds !== undefined
+          ? { sessionMemoryTtlSeconds: input.sessionMemoryTtlSeconds }
           : {}),
       },
     });

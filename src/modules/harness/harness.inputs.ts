@@ -23,6 +23,10 @@ export const updateHarnessSchema = z.object({
   status: z.enum(["ARCHIVED", "DRAFT"]).optional(),
   /** Advance the harness to a newer version (promotion). Only accepted when > current. */
   currentVersion: z.number().int().min(1).optional(),
+  /** Use Redis-backed memory for session/persistent scopes at run time. */
+  useRedisMemory: z.boolean().optional(),
+  /** TTL (seconds) for session-scoped Redis memory; null clears to the default. */
+  sessionMemoryTtlSeconds: z.number().int().min(60).max(2_592_000).nullable().optional(),
 });
 
 export const saveDraftSchema = z.object({

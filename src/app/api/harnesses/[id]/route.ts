@@ -9,6 +9,8 @@ const patchHarnessBody = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   description: z.string().trim().max(500).nullable().optional(),
   status: z.enum(["ARCHIVED", "DRAFT"]).optional(),
+  useRedisMemory: z.boolean().optional(),
+  sessionMemoryTtlSeconds: z.number().int().min(60).max(2_592_000).nullable().optional(),
 });
 
 /** GET /api/harnesses/:id — harness + draft + current graph + validation + versions. */
