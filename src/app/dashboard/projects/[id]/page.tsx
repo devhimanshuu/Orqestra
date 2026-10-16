@@ -8,6 +8,7 @@ import {
   type HarnessSummaryDto,
 } from "@/components/project-detail-view";
 import { getCurrentUser } from "@/lib/auth/session";
+import { resolveOrNotFound } from "@/lib/not-found";
 import { getProjectDetail } from "@/modules/projects/project.service";
 
 export const metadata: Metadata = {
@@ -16,7 +17,7 @@ export const metadata: Metadata = {
 
 async function ProjectData({ id }: { id: string }) {
   const user = await getCurrentUser();
-  const detail = await getProjectDetail(user, id);
+  const detail = await resolveOrNotFound(() => getProjectDetail(user, id));
 
   const agents: AgentSummaryDto[] = detail.agents.map((agent) => ({
     id: agent.id,

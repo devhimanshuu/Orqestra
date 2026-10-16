@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { DashboardNav } from "@/components/dashboard-nav";
 import { ExperimentsView, type ExperimentRowDto } from "@/components/experiments/experiments-view";
 import { getCurrentUser } from "@/lib/auth/session";
 import { listExperiments } from "@/modules/experiments/experiment.service";
@@ -50,8 +49,6 @@ async function ExperimentsData() {
 
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-6 py-10">
-      <DashboardNav current="/dashboard/experiments" />
-
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Experiments</h1>
         <p className="text-sm text-muted-foreground">

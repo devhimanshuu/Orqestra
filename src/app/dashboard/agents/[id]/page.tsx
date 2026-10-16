@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { ChevronRight } from "lucide-react";
 import { AgentOverviewView, type AgentOverviewDto } from "@/components/agent-overview-view";
 import { getCurrentUser } from "@/lib/auth/session";
+import { resolveOrNotFound } from "@/lib/not-found";
 import { getAgentOverview } from "@/modules/agents/agent.service";
 import { requireProject } from "@/modules/projects/project.service";
 
@@ -13,8 +14,8 @@ export const metadata: Metadata = {
 
 async function AgentData({ id }: { id: string }) {
   const user = await getCurrentUser();
-  const overview = await getAgentOverview(user, id);
-  const project = await requireProject(overview.projectId);
+  const overview = await resolveOrNotFound(() => getAgentOverview(user, id));
+  const project = await resolveOrNotFound(() => requireProject(overview.projectId));
 
   const agent: AgentOverviewDto = {
     id: overview.id,
@@ -28,6 +29,7 @@ async function AgentData({ id }: { id: string }) {
       purpose: overview.latestVersion.purpose,
       instructions: overview.latestVersion.instructions,
       modelConfig: overview.latestVersion.modelConfig,
+      useRedisMemory: overview.latestVersion.useRedisMemory ?? false,
     },
     harnesses: overview.harnesses,
     runCount: overview.runCount,

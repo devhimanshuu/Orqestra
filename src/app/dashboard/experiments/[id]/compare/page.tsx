@@ -2,12 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import { ChevronRight } from "lucide-react";
-import { DashboardNav } from "@/components/dashboard-nav";
 import {
   ExperimentComparisonView,
   type ExperimentComparisonDto,
 } from "@/components/experiments/comparison-view";
 import { getCurrentUser } from "@/lib/auth/session";
+import { resolveOrNotFound } from "@/lib/not-found";
 import { compareExperiment } from "@/modules/experiments/experiment.service";
 
 export const metadata: Metadata = {
@@ -24,12 +24,14 @@ export const metadata: Metadata = {
  */
 async function ComparisonData({ id }: { id: string }) {
   const user = await getCurrentUser();
-  const comparison = await compareExperiment(user, id, {
-    candidateId: undefined,
-    baselineCandidateId: undefined,
-    includeCases: true,
-    regressionsOnly: false,
-  });
+  const comparison = await resolveOrNotFound(() =>
+    compareExperiment(user, id, {
+      candidateId: undefined,
+      baselineCandidateId: undefined,
+      includeCases: true,
+      regressionsOnly: false,
+    }),
+  );
 
   const dto: ExperimentComparisonDto = {
     experiment: {
@@ -92,7 +94,6 @@ async function ComparisonData({ id }: { id: string }) {
 
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-6 py-10">
-      <DashboardNav current="/dashboard/experiments" />
       <nav className="flex items-center gap-1 text-xs text-muted-foreground" aria-label="Breadcrumb">
         <Link href="/dashboard/experiments" className="hover:text-foreground">
           Experiments

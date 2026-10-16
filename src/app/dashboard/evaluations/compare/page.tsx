@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { DashboardNav } from "@/components/dashboard-nav";
 import {
   ComparisonView,
   type ComparableBatchOption,
@@ -48,8 +47,6 @@ async function CompareData({
 
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-6 py-10">
-      <DashboardNav current="/dashboard/evaluations" />
-
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Compare evaluations</h1>
         <p className="text-sm text-muted-foreground">

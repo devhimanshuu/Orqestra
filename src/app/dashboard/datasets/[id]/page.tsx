@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import { ChevronRight } from "lucide-react";
-import { DashboardNav } from "@/components/dashboard-nav";
 import { DatasetDetailView, type DatasetDetailDto } from "@/components/evaluation/dataset-detail-view";
 import { getCurrentUser } from "@/lib/auth/session";
+import { resolveOrNotFound } from "@/lib/not-found";
 import { getDatasetDetail } from "@/modules/evaluation/dataset.service";
 
 export const metadata: Metadata = {
@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 
 async function DatasetData({ id }: { id: string }) {
   const user = await getCurrentUser();
-  const detail = await getDatasetDetail(user, id);
+  const detail = await resolveOrNotFound(() => getDatasetDetail(user, id));
 
   const initial: DatasetDetailDto = {
     id: detail.id,
@@ -45,7 +45,6 @@ async function DatasetData({ id }: { id: string }) {
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-10">
-      <DashboardNav current="/dashboard/datasets" />
       <nav className="flex items-center gap-1 text-xs text-muted-foreground" aria-label="Breadcrumb">
         <Link href="/dashboard/datasets" className="hover:text-foreground">
           Datasets

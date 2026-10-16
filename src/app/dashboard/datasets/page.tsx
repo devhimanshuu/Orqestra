@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { DashboardNav } from "@/components/dashboard-nav";
 import { DatasetsView, type DatasetRowDto } from "@/components/evaluation/datasets-view";
 import { getCurrentUser } from "@/lib/auth/session";
 import { listDatasets } from "@/modules/evaluation/dataset.service";
@@ -35,8 +34,6 @@ async function DatasetsData() {
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-10">
-      <DashboardNav current="/dashboard/datasets" />
-
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Datasets</h1>
         <p className="text-sm text-muted-foreground">

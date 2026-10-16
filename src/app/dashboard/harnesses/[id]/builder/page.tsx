@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { BuilderShell, type BuilderPayload } from "@/components/builder/builder-shell";
 import { getCurrentUser } from "@/lib/auth/session";
+import { resolveOrNotFound } from "@/lib/not-found";
 import { getHarnessDetail } from "@/modules/harness/harness.service";
 import { requireProject } from "@/modules/projects/project.service";
 
@@ -15,8 +16,8 @@ export const metadata: Metadata = {
  */
 async function BuilderData({ id }: { id: string }) {
   const user = await getCurrentUser();
-  const detail = await getHarnessDetail(user, id);
-  const project = await requireProject(detail.harness.projectId);
+  const detail = await resolveOrNotFound(() => getHarnessDetail(user, id));
+  const project = await resolveOrNotFound(() => requireProject(detail.harness.projectId));
 
   const payload: BuilderPayload = {
     harness: {

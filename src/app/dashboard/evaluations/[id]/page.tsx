@@ -2,12 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import { ChevronRight } from "lucide-react";
-import { DashboardNav } from "@/components/dashboard-nav";
 import {
   EvaluationDetailView,
   type EvaluationMetricDto,
 } from "@/components/evaluation/evaluation-detail-view";
 import { getCurrentUser } from "@/lib/auth/session";
+import { resolveOrNotFound } from "@/lib/not-found";
 import {
   getEvaluationBatch,
   getEvaluationMetrics,
@@ -26,15 +26,16 @@ export const metadata: Metadata = {
  */
 async function EvaluationData({ id }: { id: string }) {
   const user = await getCurrentUser();
-  const [detail, cases, metrics] = await Promise.all([
-    getEvaluationBatch(user, id),
-    listEvaluationCases(user, id, { status: undefined, limit: 200 }),
-    getEvaluationMetrics(user, id),
-  ]);
+  const [detail, cases, metrics] = await resolveOrNotFound(() =>
+    Promise.all([
+      getEvaluationBatch(user, id),
+      listEvaluationCases(user, id, { status: undefined, limit: 200 }),
+      getEvaluationMetrics(user, id),
+    ]),
+  );
 
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-6 py-10">
-      <DashboardNav current="/dashboard/evaluations" />
       <nav className="flex items-center gap-1 text-xs text-muted-foreground" aria-label="Breadcrumb">
         <Link href="/dashboard/evaluations" className="hover:text-foreground">
           Evaluations
