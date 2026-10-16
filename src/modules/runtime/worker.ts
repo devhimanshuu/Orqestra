@@ -87,6 +87,8 @@ async function main(): Promise<void> {
   const { EVALUATION_QUEUE_NAME } = await import("@/modules/evaluation/jobs/queues");
   const { startExperimentWorker } = await import("@/modules/experiments/jobs/worker");
   const { EXPERIMENT_QUEUE_NAME } = await import("@/modules/experiments/jobs/queues");
+  const { startOptimizationWorker } = await import("@/modules/optimization/jobs/worker");
+  const { OPTIMIZATION_QUEUE_NAME } = await import("@/modules/optimization/jobs/queues");
 
   const env = getEnv();
   getPrisma();
@@ -97,17 +99,25 @@ async function main(): Promise<void> {
     queue: RUN_QUEUE_NAME,
     evaluationQueue: EVALUATION_QUEUE_NAME,
     experimentQueue: EXPERIMENT_QUEUE_NAME,
+    optimizationQueue: OPTIMIZATION_QUEUE_NAME,
   });
 
   const worker = startRunWorker();
-  // One process, three queues: runs, evaluation batches and experiments. Both
-  // upper layers execute their cases through the run executor in this process.
+  // One process, four queues: runs, evaluation batches, experiments and
+  // optimizations. Every layer above runs executes its cases through the run
+  // executor in this process.
   const evaluationWorker = startEvaluationWorker();
   const experimentWorker = startExperimentWorker();
+  const optimizationWorker = startOptimizationWorker();
 
   const shutdown = async (signal: string): Promise<void> => {
     workerLogger.info("worker shutting down", { signal });
-    await Promise.all([worker.close(), evaluationWorker.close(), experimentWorker.close()]);
+    await Promise.all([
+      worker.close(),
+      evaluationWorker.close(),
+      experimentWorker.close(),
+      optimizationWorker.close(),
+    ]);
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));
