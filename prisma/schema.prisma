@@ -199,6 +199,8 @@ model Harness {
   status         HarnessStatus   @default(DRAFT)
   /** When true, runs use Redis-backed memory for session/persistent scopes. */
   useRedisMemory Boolean         @default(false)
+  /** TTL (seconds) for session-scoped Redis memory; null uses the store default. */
+  sessionMemoryTtlSeconds Int?
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   project        Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)

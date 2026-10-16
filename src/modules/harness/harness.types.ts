@@ -28,6 +28,7 @@ export interface Harness {
   nodeCount: number;
   edgeCount: number;
   useRedisMemory: boolean;
+  sessionMemoryTtlSeconds: number | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -45,6 +46,7 @@ export interface HarnessSummary {
   nodeCount: number;
   edgeCount: number;
   useRedisMemory: boolean;
+  sessionMemoryTtlSeconds: number | null;
   updatedAt: Date;
 }
 

@@ -149,6 +149,20 @@ export function getRedis(): Redis {
   return globalForRedis.__orqestraRedis;
 }
 
+/** Parses Redis INFO output for a section into a flat key/value map. */
+export async function getRedisInfo(section?: string): Promise<Record<string, string>> {
+  const client = getRedis();
+  const raw = section === undefined ? await client.info() : await client.info(section);
+  const result: Record<string, string> = {};
+  for (const line of raw.split("\r\n")) {
+    const idx = line.indexOf(":");
+    if (idx > 0) {
+      result[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+    }
+  }
+  return result;
+}
+
 export async function closeRedis(): Promise<void> {
   const client = globalForRedis.__orqestraRedis;
   if (client) {

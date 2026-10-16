@@ -49,6 +49,8 @@ export interface BuilderPayload {
     description: string | null;
     status: string;
     currentVersion: number;
+    useRedisMemory: boolean;
+    sessionMemoryTtlSeconds: number | null;
   };
   /** Raw draft/version definition — may be mid-edit and invalid. */
   currentDefinition: unknown;
@@ -232,6 +234,11 @@ function BuilderWorkspace({ payload }: { payload: BuilderPayload }) {
           dirty={autosave.dirty}
           error={autosave.error}
           lastSavedAt={autosave.lastSavedAt}
+        />
+        <RedisMemoryToggle
+          harnessId={harnessId}
+          initialEnabled={payload.harness.useRedisMemory}
+          initialTtl={payload.harness.sessionMemoryTtlSeconds}
         />
 
         <div className="ml-auto flex items-center gap-1">
@@ -488,6 +495,98 @@ function SaveIndicator({
     >
       <Check className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
       {lastSavedAt ? `Saved ${new Date(lastSavedAt).toLocaleTimeString()}` : "Saved"}
+    </span>
+  );
+}
+
+/** Toggles Redis-backed session memory for this harness and edits its session TTL. */
+function RedisMemoryToggle({
+  harnessId,
+  initialEnabled,
+  initialTtl,
+}: {
+  harnessId: string;
+  initialEnabled: boolean;
+  initialTtl: number | null;
+}) {
+  const [enabled, setEnabled] = useState(initialEnabled);
+  const [ttl, setTtl] = useState(initialTtl !== null ? String(initialTtl) : "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function patch(body: Record<string, unknown>): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.patch(`/api/harnesses/${harnessId}`, body);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function toggle(): void {
+    const next = !enabled;
+    setEnabled(next);
+    void patch({ useRedisMemory: next });
+  }
+
+  function commitTtl(): void {
+    if (ttl.trim() === "") {
+      void patch({ sessionMemoryTtlSeconds: null });
+      return;
+    }
+    const parsed = Number(ttl);
+    if (!Number.isInteger(parsed) || parsed < 60) {
+      setError("TTL must be at least 60 seconds");
+      return;
+    }
+    void patch({ sessionMemoryTtlSeconds: parsed });
+  }
+
+  return (
+    <span
+      className="flex items-center gap-1.5 text-[11px] text-muted-foreground"
+      data-testid="redis-memory-toggle"
+    >
+      <label className="flex cursor-pointer items-center gap-1">
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={busy}
+          onChange={toggle}
+          className="h-3 w-3 accent-emerald-600"
+        />
+        Redis memory
+      </label>
+      {enabled ? (
+        <>
+          <input
+            type="number"
+            min={60}
+            value={ttl}
+            placeholder="86400"
+            disabled={busy}
+            onChange={(event) => setTtl(event.target.value)}
+            onBlur={commitTtl}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                commitTtl();
+              }
+            }}
+            className="h-5 w-16 rounded border bg-background px-1 text-[11px]"
+            aria-label="Session memory TTL (seconds)"
+            data-testid="redis-memory-ttl"
+          />
+          <span>s TTL</span>
+        </>
+      ) : null}
+      {error !== null ? (
+        <span className="text-destructive" title={error}>
+          ⚠
+        </span>
+      ) : null}
     </span>
   );
 }

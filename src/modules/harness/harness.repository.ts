@@ -26,6 +26,7 @@ export function toHarness(row: {
   nodeCount: number;
   edgeCount: number;
   useRedisMemory?: boolean;
+  sessionMemoryTtlSeconds?: number | null;
   createdAt: Date;
   updatedAt: Date;
 }): Harness {
@@ -41,6 +42,7 @@ export function toHarness(row: {
     nodeCount: row.nodeCount,
     edgeCount: row.edgeCount,
     useRedisMemory: row.useRedisMemory ?? false,
+    sessionMemoryTtlSeconds: row.sessionMemoryTtlSeconds ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -59,6 +61,7 @@ function toHarnessSummary(row: Parameters<typeof toHarness>[0]): HarnessSummary 
     nodeCount: row.nodeCount,
     edgeCount: row.edgeCount,
     useRedisMemory: row.useRedisMemory ?? false,
+    sessionMemoryTtlSeconds: row.sessionMemoryTtlSeconds ?? null,
     updatedAt: row.updatedAt,
   };
 }

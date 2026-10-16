@@ -28,6 +28,8 @@ async function BuilderData({ id }: { id: string }) {
       description: detail.harness.description,
       status: detail.harness.status,
       currentVersion: detail.harness.currentVersion,
+      useRedisMemory: detail.harness.useRedisMemory,
+      sessionMemoryTtlSeconds: detail.harness.sessionMemoryTtlSeconds,
     },
     currentDefinition: detail.currentDefinition,
     validation: detail.validation,

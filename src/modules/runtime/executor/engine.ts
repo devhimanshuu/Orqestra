@@ -77,6 +77,8 @@ export interface ExecuteHarnessOptions {
   toolTimeoutMs?: number;
   /** When true, uses Redis-backed memory for session/persistent scopes. */
   useRedisMemory?: boolean;
+  /** TTL (seconds) for session-scoped Redis memory; undefined uses the store default. */
+  sessionMemoryTtlSeconds?: number | null;
   logger: Logger;
   now?: () => Date;
   onStepStarted?: (step: ExecutionStep) => void | Promise<void>;
@@ -205,6 +207,9 @@ export async function executeHarness(options: ExecuteHarnessOptions): Promise<Ex
     ...(options.llmTimeoutMs !== undefined ? { llmTimeoutMs: options.llmTimeoutMs } : {}),
     ...(options.toolTimeoutMs !== undefined ? { toolTimeoutMs: options.toolTimeoutMs } : {}),
     ...(options.useRedisMemory !== undefined ? { useRedisMemory: options.useRedisMemory } : {}),
+    ...(options.sessionMemoryTtlSeconds !== undefined && options.sessionMemoryTtlSeconds !== null
+      ? { sessionMemoryTtlSeconds: options.sessionMemoryTtlSeconds }
+      : {}),
   });
 
   // --- traversal -----------------------------------------------------------

@@ -109,6 +109,7 @@ export async function executeRun(
 
   const harness = await harnessRepository.findById(claimed.harnessId);
   const useRedisMemory = harness?.useRedisMemory ?? false;
+  const sessionMemoryTtlSeconds = harness?.sessionMemoryTtlSeconds ?? undefined;
 
   const agentVersion =
     claimed.agentId === null ? null : await agentRepository.findLatestVersion(claimed.agentId);
@@ -177,6 +178,7 @@ export async function executeRun(
       signal: controller.signal,
       shouldCancel: () => isRunCancellationRequested(runId),
       useRedisMemory,
+      sessionMemoryTtlSeconds,
       logger: executorLogger,
       eventSinks: [
         (event) => {

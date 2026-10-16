@@ -42,6 +42,8 @@ export interface CreateRuntimeServicesInput {
   onToolCallAccepted?: (toolId: string) => void;
   /** When true, uses Redis-backed memory for session/persistent scope (Phase 3+). */
   useRedisMemory?: boolean;
+  /** TTL (seconds) for session-scoped Redis memory; undefined uses the store default. */
+  sessionMemoryTtlSeconds?: number;
 }
 
 export interface RuntimeServices {
@@ -52,7 +54,9 @@ export interface RuntimeServices {
 }
 
 export function createRuntimeServices(input: CreateRuntimeServicesInput): RuntimeServices {
-  const memory: RunMemoryStore | RedisMemoryStore = new (input.useRedisMemory ? RedisMemoryStore : RunMemoryStore)();
+  const memory: RunMemoryStore | RedisMemoryStore = input.useRedisMemory
+    ? new RedisMemoryStore(undefined, input.sessionMemoryTtlSeconds)
+    : new RunMemoryStore();
 
   const llm = new RuntimeLlmService({
     gateway: input.gateway,
