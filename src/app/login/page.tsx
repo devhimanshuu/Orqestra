@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { Space_Grotesk } from "next/font/google";
 import { Suspense } from "react";
 import { OrqestraMark } from "@/components/brand/orqestra-mark";
+import { ClosingMark } from "@/components/landing/closing-mark";
 import { InteractiveSweep } from "@/components/landing/interactive-sweep";
 import { ArrowLink, Container } from "@/components/landing/primitives";
 import { Starfield } from "@/components/landing/starfield";
@@ -84,24 +85,8 @@ export default function LoginPage() {
         className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-[var(--home-bg)] to-transparent"
       />
 
-      {/*
-       * The landing footer's closing mark, same treatment: the wordmark set to
-       * the width of the viewport, faint, with its bottom third sliced off by
-       * the page's own edge. It sits behind everything — the header and main
-       * render above it at z-10 — and the size is in `vw` because the mark is
-       * meant to span the screen.
-       */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 bottom-0 flex select-none justify-center overflow-hidden"
-      >
-        <span
-          style={{ fontSize: "clamp(72px, 25vw, 560px)" }}
-          className="translate-y-[32%] font-bold lowercase leading-none tracking-[-0.03em] text-[var(--home-text)] opacity-[0.075]"
-        >
-          orqestra
-        </span>
-      </div>
+      {/* The landing page's closing mark, shared so the two surfaces cannot drift. */}
+      <ClosingMark />
 
       <header className="relative z-10 border-b border-[var(--home-border)] bg-[color-mix(in_oklab,var(--home-bg)_82%,transparent)] backdrop-blur-md">
         <Container className="flex h-16 items-center justify-between">

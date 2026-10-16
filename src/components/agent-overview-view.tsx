@@ -35,6 +35,7 @@ export interface AgentOverviewDto {
     purpose: string | null;
     instructions: string;
     modelConfig: { model: string; temperature?: number; maxTokens?: number };
+    useRedisMemory?: boolean;
   };
   harnesses: Array<{
     id: string;
@@ -239,9 +240,11 @@ function EditAgentDialog({ agent }: { agent: AgentOverviewDto }) {
     agent.latestVersion.modelConfig.temperature !== undefined
       ? String(agent.latestVersion.modelConfig.temperature)
       : "",
-  );
-  const [error, setError] = useState<string | null>(null);
+  );const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [useRedisMemory, setUseRedisMemory] = useState(
+    agent.latestVersion.useRedisMemory ?? false
+  );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -261,6 +264,7 @@ function EditAgentDialog({ agent }: { agent: AgentOverviewDto }) {
               ? parsedTemperature
               : undefined,
         },
+        useRedisMemory,
       });
       setOpen(false);
       router.refresh();
@@ -284,7 +288,7 @@ function EditAgentDialog({ agent }: { agent: AgentOverviewDto }) {
           <DialogTitle>Edit agent</DialogTitle>
           <DialogDescription>
             Saving creates a new immutable agent version (v{agent.latestVersion.version + 1}).
-          </DialogDescription>
+            </DialogDescription>
         </DialogHeader>
         <form onSubmit={(event) => void handleSubmit(event)} className="flex flex-col gap-3">
           <div className="flex flex-col gap-1.5">
@@ -359,6 +363,17 @@ function EditAgentDialog({ agent }: { agent: AgentOverviewDto }) {
                 step={0.1}
                 value={temperature}
                 onChange={(event) => setTemperature(event.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="edit-agent-use-redis-memory">Use Redis memory</Label>
+              <input
+                type="checkbox"
+                id="edit-agent-use-redis-memory"
+                data-testid="edit-agent-use-redis-memory"
+                checked={useRedisMemory}
+                onChange={(event) => setUseRedisMemory(event.target.checked)}
+                className="rounded border border-input bg-background hover:bg-accent"
               />
             </div>
           </div>

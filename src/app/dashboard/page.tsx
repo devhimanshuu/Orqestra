@@ -1,22 +1,36 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { DashboardNav } from "@/components/dashboard-nav";
 import { ProjectsView, type ProjectDto } from "@/components/projects-view";
-import { SignOutButton } from "@/components/sign-out-button";
+import { SystemStatus } from "@/components/system-status";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
 import { getCurrentUser } from "@/lib/auth/session";
 import { listProjects } from "@/modules/projects/project.service";
+import { listRuns } from "@/modules/runtime/run.service";
+import { listRunsQuerySchema } from "@/modules/runtime/run.inputs";
 
 export const metadata: Metadata = {
-  title: "Dashboard",
+  title: "Dashboard · Orqestra",
 };
 
 /**
- * Dashboard = projects. The product flow continues from a project card:
- * project → agents → harnesses → builder.
+ * Workspace overview.
+ *
+ * Shows the user's projects (the primary navigation target) and system health.
+ * Metrics are derived from real data only — no fabricated dashboard numbers.
+ * The user's email is rendered for e2e assertions (auth.spec.ts).
  */
 async function DashboardData() {
   const user = await getCurrentUser();
-  const projects = await listProjects(user);
+  const [projects, runsPage] = await Promise.all([
+    listProjects(user),
+    listRuns(user, listRunsQuerySchema.parse({})).catch(() => ({
+      runs: [],
+      total: 0,
+      limit: 20,
+      offset: 0,
+    })),
+  ]);
 
   const projectDtos: ProjectDto[] = projects.map((project) => ({
     id: project.id,
@@ -28,24 +42,54 @@ async function DashboardData() {
   }));
 
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-10">
-      <DashboardNav current="/dashboard" />
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-8 sm:px-6 lg:px-8">
+      <PageHeader
+        title="Projects"
+        description={
+          <>
+            Organize agents, harnesses, and evaluation suites.{" "}
+            <span className="font-mono text-xs">{user.email}</span>
+          </>
+        }
+      />
 
-      <header className="flex items-start justify-between gap-4">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Orqestra</h1>
-          <p className="text-sm text-muted-foreground">
-            The model provides intelligence; the harness controls behavior.
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {user.name} · {user.email}
-          </p>
-        </div>
-        <SignOutButton />
-      </header>
-
+      {/* Projects */}
       <ProjectsView projects={projectDtos} />
-    </main>
+
+      {/* System health */}
+      <section className="grid gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <SystemStatus />
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-semibold">Engine</CardTitle>
+            <CardDescription className="text-xs">
+              Runtime infrastructure
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2 text-xs">
+            <div className="flex items-center justify-between border-b border-border/50 py-1.5">
+              <span className="text-muted-foreground">Compiler</span>
+              <span className="font-mono font-medium">v1.0</span>
+            </div>
+            <div className="flex items-center justify-between border-b border-border/50 py-1.5">
+              <span className="text-muted-foreground">Queue</span>
+              <span className="font-mono font-medium">BullMQ + Redis</span>
+            </div>
+            <div className="flex items-center justify-between border-b border-border/50 py-1.5">
+              <span className="text-muted-foreground">Database</span>
+              <span className="font-mono font-medium">PostgreSQL + Prisma</span>
+            </div>
+            <div className="flex items-center justify-between py-1.5">
+              <span className="text-muted-foreground">Runs</span>
+              <span className="font-mono font-medium">{runsPage.total}</span>
+            </div>
+          </CardContent>
+        </Card>
+      </section>
+    </div>
   );
 }
 
@@ -53,9 +97,12 @@ export default function DashboardPage() {
   return (
     <Suspense
       fallback={
-        <main className="mx-auto w-full max-w-4xl px-6 py-10 text-sm text-muted-foreground">
-          Loading dashboard…
-        </main>
+        <div className="flex min-h-[50vh] items-center justify-center">
+          <div className="flex flex-col items-center gap-3 text-sm text-muted-foreground">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <p>Loading…</p>
+          </div>
+        </div>
       }
     >
       <DashboardData />

@@ -124,16 +124,6 @@ export function LoginForm({
       <h1 className="landing-display mt-3 text-[length:clamp(26px,4vw,36px)]">
         {mode === "sign-in" ? "Sign in" : "Create account"}
       </h1>
-      {/*
-       * The page never scrolls, so on a short or narrow viewport the pitch is
-       * the first thing to go — the form is what must stay fully visible.
-       */}
-      <p className="mt-3 text-[13.5px] leading-snug text-[var(--home-text-secondary)] max-sm:hidden [@media(max-height:760px)]:hidden">
-        {mode === "sign-in"
-          ? "Use the seeded demo account or your own credentials. Every run, trace and evaluation lives behind this door."
-          : "Email and password are stored in PostgreSQL via Better Auth."}
-      </p>
-
       <form onSubmit={(event) => void handleSubmit(event)} className="mt-5 flex flex-col gap-2.5">
         <div className="grid grid-cols-2 gap-3">
           <button
@@ -242,12 +232,6 @@ export function LoginForm({
             →
           </span>
         </button>
-
-        <p className="landing-mono mt-1 border-t border-[var(--home-border)] pt-3 text-[10.5px] tracking-[0.12em] text-[var(--home-text-dim)] uppercase">
-          {mode === "sign-in"
-            ? "demo user · created by pnpm db:seed"
-            : "passwords are hashed · postgres + better auth"}
-        </p>
       </form>
     </Frame>
   );

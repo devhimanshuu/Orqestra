@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { OrbitFavicon } from "@/components/brand/orbit-favicon";
 import { OrqestraMark } from "@/components/brand/orqestra-mark";
+import { ClosingMark } from "./closing-mark";
 import { CopyField } from "./copy-field";
 import { InteractiveSweep } from "./interactive-sweep";
 import { HARNESS_SAMPLE_JSON } from "./harness-sample";
@@ -1074,25 +1075,8 @@ export function LandingPage() {
           </Reveal>
         </Container>
 
-        {/*
-         * The closing mark: the wordmark set to the width of the viewport, faint,
-         * with its bottom third sliced off by the section's own edge — the last
-         * thing drawn before the footer. The size is in `vw` because the mark is
-         * meant to span the screen (eight characters, so a quarter of the width
-         * per em); `translate-y` hangs it below the clipping box, and nothing
-         * above can be covered: it is at 7.5% opacity and behind the content.
-         */}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 bottom-0 flex select-none justify-center overflow-hidden"
-        >
-          <span
-            style={{ fontSize: "clamp(72px, 25vw, 560px)" }}
-            className="translate-y-[32%] font-bold lowercase leading-none tracking-[-0.03em] text-[var(--home-text)] opacity-[0.075]"
-          >
-            orqestra
-          </span>
-        </div>
+        {/* The closing mark, shared with the login page — see ./closing-mark.tsx. */}
+        <ClosingMark />
       </section>
 
       {/*
@@ -1100,7 +1084,7 @@ export function LandingPage() {
        *
        * Inset to its own measure rather than the page's — the last block on the
        * page reads as a colophon, not as another section: eight slots across,
-       * small type, one footnote, and a bar of quiet links at the foot.
+       * small type, and a bar of quiet links at the foot.
        */}
       <footer className="border-t border-[var(--home-border)]">
         <div className="mx-auto w-full max-w-[1100px] px-6 pt-16 pb-8 md:pt-20">
@@ -1139,17 +1123,6 @@ export function LandingPage() {
               </nav>
             ))}
           </div>
-          {/*
-           * The small print, in the reference's manner: one line of it, kept to a
-           * readable measure, saying the thing a visitor should know about the
-           * numbers above — that they are this repository's own, not a vendor's.
-           */}{" "}
-          <p className="mb-6 max-w-[720px] text-[11px] leading-relaxed text-[var(--home-text-faint)]">
-            * Every figure quoted on this page comes from a run of this repository&apos;s own
-            runtime: the compiler, executor, trace and usage accounting live in{" "}
-            <span className="landing-mono text-[10.5px]">src/modules/runtime</span>. Nothing here is
-            a hosted service&apos;s benchmark.
-          </p>
           <div className="flex flex-col gap-4 border-t border-[var(--home-border)] pt-6 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-[12px] text-[var(--home-text-faint)]">
               © 2026 Orqestra · harness engineering platform · license not yet specified
